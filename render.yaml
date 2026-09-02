@@ -9,7 +9,7 @@ services:
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
-        value: "3.10.12"
+        value: "3.12.8"
       - key: PAYMENT_PENDING_DELAY_SECONDS
         value: "15"
       - key: PAYMENT_FAILURE_RATE
