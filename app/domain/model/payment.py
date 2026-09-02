@@ -78,6 +78,9 @@ class PaymentRequest:
     def current_transaction(self) -> Transaction | None:
         return self.transactions[-1] if self.transactions else None
 
+    def transaction_by_id(self, transaction_id: str) -> Transaction | None:
+        return next((t for t in self.transactions if t.id == transaction_id), None)
+
     def open_transaction(self) -> Transaction:
         """Start a new attempt for this request."""
 
