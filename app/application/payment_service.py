@@ -33,6 +33,12 @@ class RequestPaymentCommand:
     source_service: SourceService
 
 
+@dataclass(frozen=True)
+class RequestPaymentResult:
+    payment: PaymentRequest
+    created: bool  # False when an existing request was returned (idempotent replay)
+
+
 class PaymentService:
     def __init__(
         self,
@@ -52,7 +58,7 @@ class PaymentService:
 
     # -- commands / queries ----------------------------------------------------
 
-    async def request_payment(self, command: RequestPaymentCommand) -> PaymentRequest:
+    async def request_payment(self, command: RequestPaymentCommand) -> RequestPaymentResult:
         async with self._key_locks[command.idempotency_key]:
             existing = await self._repository.find_by_idempotency_key(command.idempotency_key)
             if existing is not None:
@@ -60,7 +66,7 @@ class PaymentService:
                     "payment.idempotent_hit",
                     extra=_fields(existing, transaction=existing.current_transaction),
                 )
-                return existing
+                return RequestPaymentResult(payment=existing, created=False)
 
             payment = PaymentRequest.create(
                 idempotency_key=command.idempotency_key,
@@ -76,7 +82,7 @@ class PaymentService:
         logger.info("payment.requested", extra=_fields(payment))
         logger.info("transaction.created", extra=_fields(payment, transaction=transaction))
         self._schedule_resolution(payment.id, transaction.id)
-        return payment
+        return RequestPaymentResult(payment=payment, created=True)
 
     async def get_payment(self, payment_id: str) -> PaymentRequest:
         payment = await self._repository.get(payment_id)
