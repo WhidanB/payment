@@ -11,6 +11,11 @@ plugged in later behind the same port, without touching the domain.
 · [health](https://payment-xp8n.onrender.com/health)
 (Render free tier: first request after ~15 min idle takes 30-50 s to wake).
 
+**Calling this API from `booking` or `access`?** Start with
+[docs/INTEGRATION_BOOKING_ACCESS.md](docs/INTEGRATION_BOOKING_ACCESS.md) — request
+examples for both scenarios, the polling recipe, idempotency-key convention, and error
+handling. Full internal state: [docs/ETAT_DU_SERVICE.md](docs/ETAT_DU_SERVICE.md).
+
 ## Business model
 
 - A **payment request** is identified by a caller-supplied **idempotency key**. Replaying the
