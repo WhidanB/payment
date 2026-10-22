@@ -161,6 +161,15 @@ Même schéma, tenu à jour (statut agrégé + toutes les transactions). `404` s
 
 `/docs` (Swagger UI), `/redoc`, `/openapi.json` — fournis nativement par FastAPI.
 
+### Authentification
+
+Convention commune au projet : chaque route (sauf `/health`) exige l'en-tête
+`X-API-Key` ; une clé par service appelant, transmise en privé (jamais dans Git).
+Implémentée côté `payment` (`app/adapters/inbound/http/security.py`), visible dans
+Swagger via le bouton *Authorize*. Si `PAYMENT_API_KEY` n'est pas configuré, la
+vérification est désactivée (mode dev/test, et période de transition avant activation
+coordonnée avec les appelants).
+
 ---
 
 ## 4. Comportement

@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     # Total number of transactions allowed per payment request (1 initial + retries).
     max_attempts: int = 2
 
+    # Shared secret callers must send as `X-API-Key`. None = auth disabled (local/test).
+    api_key: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:

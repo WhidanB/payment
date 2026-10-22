@@ -5,12 +5,13 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from app.adapters.inbound.http.schemas import CreatePaymentRequest, PaymentResponse
+from app.adapters.inbound.http.security import require_api_key
 from app.application.errors import PaymentNotFound
 from app.application.payment_service import PaymentService, RequestPaymentCommand
 from app.container import Container
 from app.domain.model.errors import InvalidPaymentRequest
 
-router = APIRouter(prefix="/payments", tags=["payments"])
+router = APIRouter(prefix="/payments", tags=["payments"], dependencies=[Depends(require_api_key)])
 
 
 def service_dep(request: Request) -> PaymentService:
