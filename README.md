@@ -1,180 +1,217 @@
-# Payment Service
+# Payment
 
-Payment microservice for the "parking fil rouge" project. It receives JSON payment
-requests from the **booking** and **access** services, opens **transactions** to settle
-them, and reports a status: `PENDING` / `ACCEPTED` / `REFUSED`.
+## Rôle du service
 
-The payment gateway is **simulated** for now (95% accepted, 5% refused). Stripe will be
-plugged in later behind the same port, without touching the domain.
+Gérer le cycle de vie d'un paiement à partir d'un montant déjà calculé, et garantir qu'une même demande n'est jamais encaissée deux fois.
 
-**Live:** https://payment-xp8n.onrender.com — [Swagger](https://payment-xp8n.onrender.com/docs)
-· [health](https://payment-xp8n.onrender.com/health)
-(Render free tier: first request after ~15 min idle takes 30-50 s to wake).
+Payment ne calcule pas les prix : il reçoit un montant et une référence de ce qui est payé (réservation ou stationnement), ouvre une ou plusieurs transactions pour le régler et renvoie un statut `PENDING` / `ACCEPTED` / `REFUSED`. La passerelle de paiement est **simulée** (95 % d'acceptation, 5 % de refus) en attendant Stripe.
 
-**Calling this API from `booking` or `access`?** Start with
-[docs/INTEGRATION_BOOKING_ACCESS.md](docs/INTEGRATION_BOOKING_ACCESS.md) — request
-examples for both scenarios, the polling recipe, idempotency-key convention, and error
-handling. Full internal state: [docs/ETAT_DU_SERVICE.md](docs/ETAT_DU_SERVICE.md).
-Day-by-day progress: [JOURNAL.md](JOURNAL.md).
+## Version actuelle
 
-## Status
+0.1.0 (MVP, passerelle simulée)
 
-| | |
+## URLs
+
+| Ressource | URL |
 |---|---|
-| Version | `0.1.0` (MVP, simulated gateway) |
-| Deployed | yes, Render (Python 3.12.8, single worker) |
-| Tests | 19 passing (`pytest -q`) |
-| Auth | `X-API-Key` implemented; enforced only when `PAYMENT_API_KEY` is set on the server |
-| Persistence | in-memory (lost on redeploy / sleep) |
-| Next | agree the API contract with booking/access, Postgres + resume of `PENDING`, Stripe adapter |
+| Service déployé | https://payment-xp8n.onrender.com |
+| Swagger UI | https://payment-xp8n.onrender.com/docs |
+| ReDoc | https://payment-xp8n.onrender.com/redoc |
+| OpenAPI JSON | https://payment-xp8n.onrender.com/openapi.json |
+| Health check | https://payment-xp8n.onrender.com/health |
 
-## Business model
+Render gratuit : après ~15 min d'inactivité, le premier appel met 30 à 50 s à répondre (réveil de l'instance).
 
-- A **payment request** is identified by a caller-supplied **idempotency key**. Replaying the
-  same key never creates a second charge — the existing request is returned as-is (HTTP 200).
-- A payment request aggregates **1..N transactions** (attempts). Each transaction is unique
-  (UUID v7). Several transactions can answer the same request.
-- A transaction stays `PENDING` for **15 s** (asynchronous by nature), then resolves.
-- On a refusal the service automatically opens **one** retry transaction (again `PENDING` 15 s).
-  If it also fails, the payment request is `REFUSED`.
-- Callers get the outcome by **polling** `GET /payments/{id}`.
-- Every transaction / payment state change is written to the logs as a JSON line.
+## Dépôt
 
-## Architecture (hexagonal)
-
-The domain core has **no** framework import.
-
-```
-app/domain/model/     entities + rules  (PaymentRequest aggregate, Transaction, enums)
-app/domain/ports/     interfaces        (PaymentRepository, PaymentGateway, ResolutionScheduler)
-app/application/       use-cases         (PaymentService)
-app/adapters/inbound/  FastAPI routes, DTOs, X-API-Key security
-app/adapters/outbound/ InMemoryPaymentRepository, SimulatedPaymentGateway, AsyncioResolutionScheduler
-app/container.py       composition root  <- swap adapters here (Stripe, SQL, ...)
-app/main.py            application factory
-```
-
-To plug Stripe in later: add `app/adapters/outbound/stripe_payment_gateway.py` implementing
-`PaymentGateway`, and wire it in `container.py`. Nothing else changes.
-
-## API
-
-Base URL: `https://payment-xp8n.onrender.com`. Interactive docs: **`/docs`** (Swagger UI),
-`/redoc`, `/openapi.json`.
-
-### Authentication
-
-Project-wide convention: every route except `/health` requires an **`X-API-Key`** header
-(one key per service, shared privately, never committed). Missing or wrong key → `401`.
-`/health`, `/docs`, `/redoc` and `/openapi.json` stay open; Swagger's **Authorize** button
-lets you try the routes with the key. If `PAYMENT_API_KEY` is not set on the server, the
-check is skipped (local dev, tests, and the transition period before a coordinated rollout).
-
-### `POST /payments` → `202 Accepted` (`200` on idempotent replay)
-
-```json
-{
-  "idempotency_key": "booking-4567-1",
-  "amount": 1250,
-  "currency": "EUR",
-  "reference": { "type": "BOOKING", "id": "resa_01J9Z..." },
-  "source_service": "booking"
-}
-```
-
-| field | notes |
+| Dépôt | URL |
 |---|---|
-| `idempotency_key` | required, unique per business operation |
-| `amount` | integer, **minor units (cents)**, > 0 |
+| Backend | https://github.com/WhidanB/payment |
+
+## Documentation
+
+| Document | Contenu |
+|---|---|
+| [docs/INTEGRATION_BOOKING_ACCESS.md](docs/INTEGRATION_BOOKING_ACCESS.md) | Guide pour Booking et Access : exemples par scénario, polling, idempotence, erreurs |
+| [docs/ETAT_DU_SERVICE.md](docs/ETAT_DU_SERVICE.md) | État détaillé du service : périmètre, modèle, comportement, limites |
+| [JOURNAL.md](JOURNAL.md) | Journal de travail jour par jour |
+
+## Dépendances avec les autres services
+
+Payment est un service **passif**. Il ne fait aucun appel sortant.
+
+| Service | Direction | Description |
+|---|---|---|
+| Booking | Booking appelle Payment | Paiement anticipé à la commande d'une réservation (`reference.type = BOOKING`). Booking confirme la réservation une fois le paiement `ACCEPTED` |
+| Access | Access appelle Payment | Paiement du stationnement à la sortie (`reference.type = PARKING_EXIT`). Access ouvre la barrière une fois le paiement `ACCEPTED` |
+
+Aucun flux asynchrone (broker) n'est utilisé pour l'instant : le résultat est récupéré par **polling** de `GET /payments/{id}`, le paiement étant asynchrone par nature (`PENDING` pendant 15 s).
+
+## Comportement
+
+- Une **demande de paiement** est identifiée par une clé d'idempotence fournie par l'appelant. Rejouer la même clé renvoie la demande existante (`200`), sans nouvelle transaction ni nouvel encaissement.
+- Une demande regroupe **1 à N transactions** (tentatives), chacune unique (UUID v7).
+- Une transaction reste `PENDING` pendant **15 s**, puis passe à `ACCEPTED` ou `REFUSED`.
+- Après un refus, le service ouvre automatiquement **une seule** transaction de retry (de nouveau `PENDING` 15 s). Si elle échoue aussi, la demande est `REFUSED`.
+- Le statut final est donc disponible au bout de ~15 s, ou ~30 s en cas de retry.
+- Chaque changement d'état est journalisé en une ligne JSON.
+
+## Tester le service
+
+### Health check
+
+```bash
+curl https://payment-xp8n.onrender.com/health
+```
+
+### Créer une demande de paiement (réservation)
+
+```bash
+curl -X POST https://payment-xp8n.onrender.com/payments \
+     -H "Content-Type: application/json" \
+     -H "X-API-Key: <clé>" \
+     -d '{"idempotency_key":"booking:resa_1:create","amount":1250,"currency":"EUR","reference":{"type":"BOOKING","id":"resa_1"},"source_service":"booking"}'
+```
+
+Réponse `202` avec le `payment_id` et le statut `PENDING`.
+
+### Créer une demande de paiement (sortie de parking)
+
+```bash
+curl -X POST https://payment-xp8n.onrender.com/payments \
+     -H "Content-Type: application/json" \
+     -H "X-API-Key: <clé>" \
+     -d '{"idempotency_key":"access:stay_42:exit","amount":460,"currency":"EUR","reference":{"type":"PARKING_EXIT","id":"stay_42"},"source_service":"access"}'
+```
+
+### Consulter le résultat (polling)
+
+```bash
+curl https://payment-xp8n.onrender.com/payments/<payment_id> -H "X-API-Key: <clé>"
+```
+
+À répéter (toutes les 2 s) jusqu'à ce que `status` ne soit plus `PENDING`.
+
+L'en-tête `X-API-Key` n'est exigé qu'une fois la clé activée sur le serveur (voir Sécurité). Le script `scripts/requests.sh` enchaîne tous ces scénarios (création, rejeu idempotent, polling, erreurs 422/404, recherche d'un refus) : `BASE_URL=... API_KEY=... ./scripts/requests.sh`.
+
+## Contrat d'API
+
+| Route | Description | Codes |
+|---|---|---|
+| `POST /payments` | Crée une demande et sa première transaction | `202` (créée), `200` (rejeu idempotent), `401`, `422` |
+| `GET /payments/{payment_id}` | Statut agrégé et toutes les transactions | `200`, `401`, `404` |
+| `GET /health` | Santé du service | `200` |
+
+Corps de `POST /payments` :
+
+| Champ | Règle |
+|---|---|
+| `idempotency_key` | Obligatoire, unique par opération métier |
+| `amount` | Entier en **centimes**, > 0 (`1250` = 12,50 €) |
 | `currency` | `EUR` |
-| `reference.type` | `BOOKING` \| `PARKING_EXIT` |
-| `reference.id` | booking id or parking-stay id |
-| `source_service` | `booking` \| `access` |
+| `reference.type` | `BOOKING` ou `PARKING_EXIT` |
+| `reference.id` | Identifiant de la réservation ou du stationnement |
+| `source_service` | `booking` ou `access` |
 
-Response:
+Le détail des scénarios, du polling et de la gestion d'erreurs est dans le [guide d'intégration](docs/INTEGRATION_BOOKING_ACCESS.md).
 
-```json
-{
-  "payment_id": "01a061e4-b37c-7881-8e47-743bcbc8cffb",
-  "status": "PENDING",
-  "amount": 1250,
-  "currency": "EUR",
-  "reference": { "type": "BOOKING", "id": "resa_01J9Z..." },
-  "source_service": "booking",
-  "transactions": [
-    { "transaction_id": "01a061e4-...", "attempt": 1, "status": "PENDING",
-      "created_at": "2026-09-02T11:32:53.244Z", "resolved_at": null }
-  ],
-  "created_at": "2026-09-02T11:32:53.244Z",
-  "updated_at": "2026-09-02T11:32:53.244Z"
-}
+## Sécurité
+
+| Action | Protection |
+|---|---|
+| `POST /payments`, `GET /payments/{id}` | En-tête `X-API-Key` (401 si absent ou faux) |
+| `/health`, `/docs`, `/redoc`, `/openapi.json` | Publics |
+
+| Mesure | Détail |
+|---|---|
+| Convention | Commune à tous les services : `X-API-Key`, une clé par service, `/health` ouvert, clés échangées en privé |
+| Clé | Variable d'environnement `PAYMENT_API_KEY`, jamais dans le code ni dans Git (`sync: false` dans `render.yaml`) |
+| Activation | Le contrôle n'est actif que si `PAYMENT_API_KEY` est défini sur le serveur, pour ne casser aucun appelant avant une bascule coordonnée |
+| Swagger | Schéma de sécurité déclaré, bouton **Authorize** pour tester avec la clé |
+| Validation des entrées | Pydantic v2 (montant > 0, types et énumérations contrôlés) |
+| Idempotence | Aucun double encaissement en cas de rejeu ; verrou par clé pour les appels concurrents |
+
+## Fonctionnalités
+
+- [x] Je peux créer une demande de paiement et obtenir immédiatement un statut `PENDING`.
+- [x] Je peux consulter le statut d'une demande et toutes ses transactions.
+- [x] Une même demande rejouée avec la même clé n'est jamais encaissée deux fois.
+- [x] Chaque transaction a un identifiant unique (UUID v7).
+- [x] Le paiement est asynchrone : `PENDING` pendant 15 s puis `ACCEPTED` ou `REFUSED`.
+- [x] Un refus déclenche un retry automatique (une seule fois).
+- [x] Environ 5 % des paiements simulés sont refusés, pour tester le comportement en cas d'échec.
+- [x] Chaque transaction et chaque changement d'état est journalisé.
+- [x] Le service expose un endpoint `/health`.
+- [x] La documentation Swagger/ReDoc est générée automatiquement.
+- [x] Les routes de paiement sont protégées par `X-API-Key` (activation côté serveur à coordonner).
+- [x] Le service est déployé sur Render.
+- [ ] Activation de la clé API en production.
+- [ ] Communication réelle avec Booking.
+- [ ] Communication réelle avec Access.
+- [ ] Persistance durable (Postgres) et reprise des transactions `PENDING` après redémarrage.
+- [ ] Intégration de Stripe.
+
+## Architecture
+
+Architecture hexagonale : le cœur métier n'importe aucun framework.
+
+```
+app/domain/model/       entités et règles (PaymentRequest, Transaction, enums, UUID v7)
+app/domain/ports/       interfaces (PaymentRepository, PaymentGateway, ResolutionScheduler)
+app/application/        cas d'usage (PaymentService)
+app/adapters/inbound/   routes FastAPI, DTO, sécurité X-API-Key
+app/adapters/outbound/  repo en mémoire, passerelle simulée, scheduler asyncio
+app/container.py        composition root : point de câblage des adapters
+app/main.py             fabrique de l'application
 ```
 
-- `401` — missing or invalid `X-API-Key` (when auth is enabled).
-- `422` — invalid body.
+Pour brancher Stripe : ajouter `stripe_payment_gateway.py` implémentant `PaymentGateway` et le câbler dans `container.py`. Le domaine ne change pas. Même principe pour un repository Postgres.
 
-### `GET /payments/{payment_id}` → `200 OK`
+## Stack technique
 
-Same shape, kept up to date (aggregate status + every transaction). `404` if unknown.
+- Python 3.12 (Render, `.python-version`), FastAPI, Pydantic v2, pydantic-settings, uuid-utils, uvicorn
+- Architecture hexagonale (domain / application / adapters)
+- Tests : pytest + httpx (19 tests unitaires, flux asynchrone et intégration API)
+- Logs JSON structurés
+- Déploiement : Render (`render.yaml`, un seul worker, déploiement automatique à chaque push sur `master`)
 
-### `GET /health` → `200 OK`
-
-```json
-{ "status": "ok", "version": "0.1.0", "uptime_seconds": 12.3 }
-```
-
-## Run locally
+## Lancer en local
 
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:create_app --factory --reload
-```
-
-```bash
-# create (add -H 'X-API-Key: <key>' if PAYMENT_API_KEY is set)
-curl -si -XPOST localhost:8000/payments -H 'content-type: application/json' -d '{
-  "idempotency_key":"demo-1","amount":1250,"currency":"EUR",
-  "reference":{"type":"BOOKING","id":"resa_1"},"source_service":"booking"}'
-
-# poll (repeat until status != PENDING; ~15s)
-curl -s localhost:8000/payments/<payment_id>
-```
-
-Run tests:
-
-```bash
 pytest -q
 ```
 
-Explore the API end to end (create, replay, polling, 422/404, refusal hunt):
+Swagger : http://127.0.0.1:8000/docs
 
-```bash
-./scripts/requests.sh                                    # against Render
-BASE_URL=http://localhost:8000 API_KEY=... ./scripts/requests.sh
-```
+Pour voir un refus suivi du retry : `PAYMENT_FAILURE_RATE=1 PAYMENT_PENDING_DELAY_SECONDS=3 uvicorn app.main:create_app --factory`.
 
-## Configuration (env vars, prefix `PAYMENT_`)
+## Configuration
 
-| var | default | meaning |
+| Variable | Défaut | Rôle |
 |---|---|---|
-| `PAYMENT_PENDING_DELAY_SECONDS` | `15` | how long a transaction stays PENDING |
-| `PAYMENT_FAILURE_RATE` | `0.05` | share of simulated refusals |
-| `PAYMENT_MAX_ATTEMPTS` | `2` | transactions per request (1 initial + 1 retry) |
-| `PAYMENT_API_KEY` | _unset_ | shared secret expected in `X-API-Key`; unset = auth disabled. Set it in the Render dashboard (`sync: false`), never in git. |
+| `PAYMENT_PENDING_DELAY_SECONDS` | `15` | Durée du statut `PENDING` d'une transaction |
+| `PAYMENT_FAILURE_RATE` | `0.05` | Part de refus simulés par la passerelle |
+| `PAYMENT_MAX_ATTEMPTS` | `2` | Transactions par demande (1 initiale + 1 retry) |
+| `PAYMENT_API_KEY` | non défini | Clé attendue dans `X-API-Key` ; non défini = contrôle désactivé |
 
-## Deployment (Render)
+## Limites connues
 
-`render.yaml` (blueprint) defines a free Python web service:
+- Persistance en mémoire : l'historique est perdu à chaque redéploiement ou mise en veille de Render.
+- Une transaction `PENDING` au moment d'un redémarrage n'est jamais résolue.
+- Un seul worker obligatoire (état et tâches de résolution dans le process).
+- Passerelle simulée : aucun encaissement réel.
+- Pas d'événements publiés : les appelants doivent faire du polling.
 
-- Python version pinned by `.python-version` (`3.12.8`)
-- build: `pip install -r requirements.txt`
-- start: `uvicorn app.main:create_app --factory --host 0.0.0.0 --port $PORT --workers 1`
-- health check: `/health`
+## Aspects de maturité
 
-Push the repo to GitHub, then in Render: **New → Blueprint** and point it at the repo.
-Every push to `master` redeploys automatically. To turn authentication on, add
-`PAYMENT_API_KEY` in the service's **Environment** tab (coordinate with the callers first).
-
-> **Single worker only** — the in-memory store and the async resolution tasks live in the
-> process. Persistence (Postgres) is the next step and lifts this constraint.
+| Aspect | État | Commentaire |
+|---|---|---|
+| Métier | 3 - Maîtrisé | Responsabilité, objets et règles clairs : idempotence, cycle de vie asynchrone, retry unique |
+| API / Déploiement | 3 - Maîtrisé | En ligne sur Render, /health, Swagger/ReDoc, version 0.1.0 |
+| Intégration | 1 - Défini | Contrat d'API et guide fournis à Booking et Access, pas encore d'appel réel validé. Passera à 2 avec un premier appel réel de leur part |
+| Qualité | 2 - Fonctionnel | 19 tests (domaine, flux asynchrone, API, auth). Pas de lint, d'audit des dépendances ni de mesure de complexité |
+| CI/CD | 1 - Défini | Déploiement continu Render sur push, mais pas de pipeline de tests automatisé |
+| Sécurité | 2 - Fonctionnel | `X-API-Key` implémentée, pas encore activée en production. Pas de rate limiting ni de headers de sécurité |
