@@ -123,11 +123,17 @@ Jalon 9 (qualité et fiabilité). Audit du comportement du service, puis correct
 - Une ligne `http.request` par appel (méthode, chemin, statut, durée), `/health` et la liste sondée par l'UI en `DEBUG` seulement, `500` JSON avec `request_id`, `PAYMENT_LOG_LEVEL`, logs d'accès uvicorn désactivés (remplacés par les nôtres en JSON).
 
 #### Vérifiabilité
-- 24 → 123 tests : matrice d'entrées invalides, valeurs limites, conflits d'idempotence, 25 appels concurrents, panne du prestataire, double résolution, invariants du domaine, adapters, contenu des logs. Couverture de branches 99,7 % (seuil 90 %).
+- 24 → 123 tests (131 après la démonstration du refus) : matrice d'entrées invalides, valeurs limites, conflits d'idempotence, 25 appels concurrents, panne du prestataire, double résolution, invariants du domaine, adapters, contenu des logs. Couverture de branches 99,7 % (seuil 90 %).
 - Les trois garde-fous critiques (verrou par clé, capture des exceptions de la passerelle, détection de conflit) vérifiés par mutation : les désactiver fait échouer les tests.
 - Outillage : `ruff` (lint, format, complexité cyclomatique ≤ 10), `requirements-dev.txt` séparé du runtime, workflow GitHub Actions, `scripts/verify.sh` (mêmes contrôles en local).
 - Documentation à jour : `docs/VERIFICATION.md` (nouvelle : commande unique, cas testés, catalogue des logs, scénarios manuels, vérification en production), README, `ETAT_DU_SERVICE.md`, guide d'intégration (409, bornes, `X-Request-ID`).
 - Vérifié de bout en bout : démarrage avec les seules dépendances runtime, logs réels corrélés par `request_id`, console `/ui` toujours fonctionnelle dans Chromium headless.
+
+#### Démonstration du refus et de sa nouvelle présentation
+- Constat en testant la console : avec 5 % de refus aléatoires, on ne voit presque jamais un paiement refusé puis représenté, et la liste n'affichait qu'un nombre de tentatives.
+- La passerelle reçoit désormais le numéro de tentative et l'identifiant de transaction (ce dernier servira de clé d'idempotence côté Stripe). Comme les cartes de test Stripe, les références `demo-refuse-once…` (refus puis retry accepté) et `demo-refuse-always…` (refus définitif) donnent une issue garantie, y compris en production.
+- Console `/ui` : boutons « Refus puis retry accepté » et « Refus définitif », chaîne des tentatives dans la liste (`REFUSED → PENDING`, puis `REFUSED → ACCEPTED`), récit dans le détail (« refusée à la tentative 1, représentée automatiquement, acceptée à la tentative 2 »), lien entre les tentatives, compteur des demandes représentées, bouton « Représenter ce paiement » après un refus définitif (nouvelle demande, nouvelle clé).
+- 131 tests ; les trois parcours vérifiés dans Chromium headless, sans erreur JavaScript.
 
 ### Problèmes
 

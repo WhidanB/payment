@@ -126,6 +126,8 @@ class PaymentService:
                 amount=payment.amount,
                 currency=payment.currency,
                 reference=payment.reference,
+                transaction_id=transaction.id,
+                attempt=transaction.attempt,
             )
         except Exception:
             logger.exception("gateway.error", extra=_fields(payment, transaction=transaction))

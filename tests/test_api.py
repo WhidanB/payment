@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import time
 
+import pytest
+
 BODY = {
     "idempotency_key": "booking-api-1",
     "amount": 1250,
@@ -84,3 +86,27 @@ def test_health_exposes_ui_config(client):
     assert body["pending_delay_seconds"] == 0
     assert body["max_attempts"] == 2
     assert body["auth_enabled"] is False
+
+
+@pytest.mark.parametrize(
+    "reference_id,final,chain",
+    [
+        ("demo-refuse-once-resa_1", "ACCEPTED", ["REFUSED", "ACCEPTED"]),
+        ("demo-refuse-always-resa_1", "REFUSED", ["REFUSED", "REFUSED"]),
+    ],
+)
+def test_demo_scenarios_show_the_refusal_and_its_automatic_retry(
+    client, reference_id, final, chain
+):
+    body = {
+        **BODY,
+        "idempotency_key": reference_id,
+        "reference": {"type": "BOOKING", "id": reference_id},
+    }
+    created = client.post("/payments", json=body)
+
+    settled = _poll_until_settled(client, created.json()["payment_id"])
+
+    assert settled["status"] == final
+    assert [t["status"] for t in settled["transactions"]] == chain
+    assert [t["attempt"] for t in settled["transactions"]] == [1, 2]

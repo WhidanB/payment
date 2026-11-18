@@ -49,7 +49,12 @@
   .PENDING { background: var(--pending-bg); color: var(--pending); }
   .ACCEPTED { background: var(--ok-bg); color: var(--ok); }
   .REFUSED { background: var(--ko-bg); color: var(--ko); }
-  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; margin-bottom: 12px; }
+  .chain { display: inline-flex; gap: 4px; align-items: center; }
+  .chain .badge { font-size: 11px; padding: 0 5px; }
+  .story { margin: 0 0 12px; padding: 8px 10px; border-left: 3px solid var(--accent); background: var(--bg); border-radius: 4px; }
+  ol.tx li.link { border: none; padding: 0 10px; color: var(--muted); font-size: 13px; }
+  .demo { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
   .stat { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
   .stat b { display: block; font-size: 20px; }
   .tablewrap { overflow-x: auto; max-height: 340px; overflow-y: auto; }
@@ -108,7 +113,15 @@
       <div class="row">
         <button type="button" id="batch">Générer 20 paiements</button>
       </div>
-      <p class="muted">Rejouer montre l'idempotence : même clé → <span class="mono">200</span> et même <span class="mono">payment_id</span>, aucune nouvelle transaction. Le lot de 20 sert à observer un refus et le retry automatique.</p>
+      <p class="muted">Rejouer montre l'idempotence : même clé → <span class="mono">200</span> et même <span class="mono">payment_id</span>, aucune nouvelle transaction. Le lot de 20 montre la répartition réelle (environ 5 % de refus au 1er essai).</p>
+      <div class="demo">
+        <h2>Démontrer un refus</h2>
+        <div class="row">
+          <button type="button" id="demoOnce">Refus puis retry accepté</button>
+          <button type="button" id="demoAlways">Refus définitif</button>
+        </div>
+        <p class="muted">Résultat garanti, sans attendre le hasard : la passerelle simulée reconnaît les références <span class="mono">demo-refuse-once…</span> (refusée à la tentative 1, acceptée au retry) et <span class="mono">demo-refuse-always…</span> (refusée aux 2 tentatives), comme les cartes de test Stripe. Montant, type et appelant sont repris du formulaire.</p>
+      </div>
     </form>
   </section>
 
@@ -118,7 +131,7 @@
     <div class="stats" id="stats"></div>
     <div class="tablewrap">
       <table>
-        <thead><tr><th>Créée</th><th>Statut</th><th>Montant</th><th>Référence</th><th>Source</th><th>Tentatives</th><th>Progression</th></tr></thead>
+        <thead><tr><th>Créée</th><th>Statut</th><th>Montant</th><th>Référence</th><th>Source</th><th>Tentatives</th><th>Délai</th></tr></thead>
         <tbody id="rows"></tbody>
       </table>
     </div>
@@ -140,7 +153,8 @@
     <div class="legend">
       <p><b>Demande de paiement</b><br>Identifiée par la clé d'idempotence de l'appelant (Booking ou Access). Porte le statut final et regroupe 1 à N transactions.</p>
       <p><b>Transaction</b><br>Une tentative d'encaissement (UUID v7). Reste <span class="badge PENDING">PENDING</span> pendant le délai d'attente, puis <span class="badge ACCEPTED">ACCEPTED</span> ou <span class="badge REFUSED">REFUSED</span>.</p>
-      <p><b>Retry automatique</b><br>Un refus ouvre une seule transaction supplémentaire. Si elle échoue aussi, la demande passe à <span class="badge REFUSED">REFUSED</span>.</p>
+      <p><b>Refus et nouvelle présentation</b><br>Un refus ne clôt pas la demande : le service la représente automatiquement une fois (tentative 2, de nouveau <span class="badge PENDING">PENDING</span>). Si ce retry échoue aussi, la demande passe à <span class="badge REFUSED">REFUSED</span> ; la colonne Tentatives montre la chaîne, par exemple REFUSED → ACCEPTED.</p>
+      <p><b>Après un refus définitif</b><br>Rejouer la même clé renvoie le même refus (idempotence). Pour retenter, l'appelant crée une nouvelle demande avec une nouvelle clé : bouton « Représenter ce paiement » dans le détail.</p>
       <p><b>Opérations</b><br><span class="mono">POST /payments</span> crée (202) ou rejoue (200) ; <span class="mono">GET /payments/{id}</span> donne le résultat ; la page interroge la liste toutes les 2 s. API complète : <a href="/docs">/docs</a>.</p>
     </div>
   </section>
@@ -218,10 +232,10 @@
   }
 
   function renderStats() {
-    const c = { total: state.payments.length, PENDING: 0, ACCEPTED: 0, REFUSED: 0 };
-    for (const p of state.payments) c[p.status]++;
+    const c = { total: state.payments.length, PENDING: 0, ACCEPTED: 0, REFUSED: 0, retried: 0 };
+    for (const p of state.payments) { c[p.status]++; if (p.transactions.length > 1) c.retried++; }
     const box = $("stats"); box.replaceChildren();
-    for (const [label, key] of [["Total", "total"], ["PENDING", "PENDING"], ["ACCEPTED", "ACCEPTED"], ["REFUSED", "REFUSED"]]) {
+    for (const [label, key] of [["Total", "total"], ["PENDING", "PENDING"], ["ACCEPTED", "ACCEPTED"], ["REFUSED", "REFUSED"], ["Représentées", "retried"]]) {
       box.append(el("div", { class: "stat" }, el("span", { class: "muted", text: label }), el("b", { text: String(c[key]) })));
     }
   }
@@ -241,6 +255,45 @@
   }
   function tickBars() { if (state.cfg) document.querySelectorAll(".bar[data-created]").forEach(paintBar); }
 
+  function chain(p) {
+    const box = el("span", { class: "chain", title: p.transactions.length + " tentative(s)" });
+    p.transactions.forEach((t, i) => {
+      if (i > 0) box.append(el("span", { class: "muted", text: "→" }));
+      box.append(badge(t.status));
+    });
+    return box;
+  }
+
+  function story(p) {
+    const txs = p.transactions;
+    if (!txs.length) return "Aucune tentative.";
+    const phrase = (t) => t.status === "PENDING" ? "tentative " + t.attempt + " en attente de la passerelle"
+      : (t.status === "ACCEPTED" ? "acceptée" : "refusée") + " à la tentative " + t.attempt;
+    let text = txs.map(phrase).join(", représentée automatiquement, ");
+    if (p.status === "REFUSED") text += " : refus définitif, la demande ne sera plus représentée automatiquement.";
+    else if (p.status === "ACCEPTED" && txs.length > 1) text += " : le retry automatique a permis l'encaissement.";
+    else text += ".";
+    return text.charAt(0).toUpperCase() + text.slice(1);
+  }
+
+  const DEMO_PREFIX = /^demo-refuse-(once|always)-/;
+  async function represent(p) {
+    const body = {
+      idempotency_key: uid(), amount: p.amount, currency: p.currency, source_service: p.source_service,
+      reference: { type: p.reference.type, id: p.reference.id.replace(DEMO_PREFIX, "") || p.reference.id },
+    };
+    const out = await send(body);
+    if (out.status === 202) state.logs[0].text = "Paiement représenté : nouvelle demande " + short(out.data.payment_id) + " (nouvelle clé) pour la même référence";
+    renderLog();
+  }
+
+  async function demo(prefix) {
+    const exit = $("rtype").value === "PARKING_EXIT";
+    const ref = prefix + "-" + (exit ? "stay_" : "resa_") + Math.floor(1000 + Math.random() * 9000);
+    await send({ idempotency_key: uid(), amount: parseInt($("amount").value, 10) || 1250, currency: "EUR",
+                 reference: { type: $("rtype").value, id: ref }, source_service: $("src").value });
+  }
+
   let rowsSig = "", detailSig = "";
   function renderRows() {
     const sig = !!state.cfg + "|" + state.selected + "|" + state.payments.map((p) => p.payment_id + p.status + p.transactions.map((t) => t.status).join(",")).join(";");
@@ -252,7 +305,7 @@
       const tr = el("tr", { tabindex: "0", "data-id": p.payment_id, class: p.payment_id === state.selected ? "sel" : "" },
         el("td", { text: hhmmss(p.created_at) }), el("td", {}, badge(p.status)), el("td", { text: eur(p.amount) }),
         el("td", { text: p.reference.type + " " + p.reference.id }), el("td", { text: p.source_service }),
-        el("td", { text: String(p.transactions.length) }), el("td", {}, progress(p)));
+        el("td", {}, chain(p)), el("td", {}, progress(p)));
       const pick = () => { state.selected = p.payment_id; renderRows(); renderDetail(); };
       tr.addEventListener("mousedown", pick);
       tr.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } });
@@ -276,11 +329,13 @@
     row("Référence", el("span", { text: p.reference.type + " · " + p.reference.id }));
     row("Appelant", el("span", { text: p.source_service }));
     row("Créée / mise à jour", el("span", { text: hhmmss(p.created_at) + " / " + hhmmss(p.updated_at) }));
+    box.append(el("p", { class: "story", role: "status", text: story(p) }));
     box.append(dl);
 
     box.append(el("h2", { text: "Transactions (" + p.transactions.length + ")" }));
     const ol = el("ol", { class: "tx" });
     for (const t of p.transactions) {
+      if (t.attempt > 1) ol.append(el("li", { class: "link", text: "↓ refus → nouvelle présentation automatique" }));
       const dur = t.resolved_at ? ((new Date(t.resolved_at) - new Date(t.created_at)) / 1000).toFixed(1) + " s" : "en cours";
       ol.append(el("li", {},
         el("div", {}, el("b", { text: "Tentative " + t.attempt + " " }), badge(t.status), el("span", { class: "muted", text: "  durée : " + dur })),
@@ -288,6 +343,12 @@
         el("div", { class: "muted", text: "ouverte " + hhmmss(t.created_at) + (t.resolved_at ? " · résolue " + hhmmss(t.resolved_at) : "") })));
     }
     box.append(ol);
+    if (p.status === "REFUSED") {
+      const btn = el("button", { type: "button", text: "Représenter ce paiement (nouvelle demande)" });
+      btn.addEventListener("click", () => represent(p));
+      box.append(el("div", { class: "row" }, btn),
+        el("p", { class: "muted", text: "Le refus est définitif pour cette clé : la rejouer renverrait ce même refus. L'appelant représente le paiement en créant une nouvelle demande (nouvelle clé, même montant et même référence ; les préfixes de démonstration sont retirés)." }));
+    }
     box.append(el("h2", { text: "Réponse JSON brute" }), el("pre", { text: JSON.stringify(p, null, 2) }));
   }
 
@@ -364,6 +425,8 @@
       created + " demandes créées sur 20 — suivez leur résolution dans la liste");
     btn.disabled = false; await refresh();
   });
+  $("demoOnce").addEventListener("click", () => demo("demo-refuse-once"));
+  $("demoAlways").addEventListener("click", () => demo("demo-refuse-always"));
   $("savekey").addEventListener("click", () => {
     state.key = $("apikey").value.trim();
     try { sessionStorage.setItem("payment_api_key", state.key); } catch (_) {}

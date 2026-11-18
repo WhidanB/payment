@@ -19,7 +19,7 @@ pip install -r requirements-dev.txt
 | Format | `ruff format --check` | aucun écart |
 | Tests + couverture de branches | `pytest --cov` | tous verts, couverture ≥ 90 % (actuellement ~99,7 %) |
 
-Résultat attendu (nombre de tests à la date du 18 novembre) : `123 passed`, `Total coverage: 99.xx%`.
+Résultat attendu (à la date du 18 novembre) : `131 passed`, `Total coverage: 99.xx%`.
 
 Les tests sont déterministes : pas de `sleep`, passerelle forcée, planificateur piloté à la main
 (`tests/conftest.py`). Un échec est donc un vrai défaut, pas un test instable.
@@ -58,6 +58,8 @@ Les tests sont déterministes : pas de `sleep`, passerelle forcée, planificateu
 | Résolution déclenchée deux fois / tardive | `test_resolving_the_same_transaction_twice_…` | une seule passerelle appelée, demande réglée inchangée |
 | Paiement disparu au moment de la résolution | `test_resolution_of_a_vanished_payment_…` | sans effet, sans erreur |
 | Refus simulés ≈ 5 % | `test_default_rate_refuses_about_five_percent` | 4 à 6 % sur 20 000 tirages (graine fixe) |
+| Référence `demo-refuse-once…` | `test_demo_scenarios_show_the_refusal_…`, `test_demo_reference_ids_…` | tentative 1 `REFUSED`, retry `ACCEPTED`, demande `ACCEPTED` |
+| Référence `demo-refuse-always…` | idem | tentatives 1 et 2 `REFUSED`, demande `REFUSED` |
 | Clé API absente / fausse / correcte, `/health` et `/ui` ouverts | `test_api_key.py` | `401` / `401` / OK |
 
 ### Règles du domaine (`tests/test_domain.py`)
@@ -82,7 +84,7 @@ champs de l'événement. Un seul format, filtrable avec `jq`.
 | `http.request` | chaque appel HTTP | `method`, `path`, `status`, `duration_ms` |
 | `payment.requested` | nouvelle demande | `payment_id`, `idempotency_key`, `amount`, `reference_*`, `source_service` |
 | `transaction.created` | ouverture d'une tentative | `transaction_id`, `attempt` |
-| `gateway.authorize` | appel à la passerelle | `approved`, `detail` |
+| `gateway.authorize` | appel à la passerelle | `approved`, `scenario` (`random`, `refuse_once`, `refuse_always`), `attempt`, `transaction_id`, `detail` |
 | `transaction.accepted` / `transaction.refused` | résolution d'une tentative | `attempt`, `detail` |
 | `payment.retry_scheduled` | retry automatique | `attempt` |
 | `payment.accepted` / `payment.refused` | statut final de la demande | `attempts` |
@@ -109,7 +111,10 @@ Bruit : `/health` et `GET /payments` (sondés par Render et la console) ne sont 
 | Je veux voir… | Commande |
 |---|---|
 | Le flux nominal, le rejeu, le polling, 422/404, un lot de 30 | `BASE_URL=http://localhost:8000 ./scripts/requests.sh` |
-| Un refus puis son retry, à coup sûr | `PAYMENT_FAILURE_RATE=1 PAYMENT_PENDING_DELAY_SECONDS=3 uvicorn app.main:create_app --factory` puis créer un paiement : 2 transactions `REFUSED`, demande `REFUSED` |
+| Un refus puis son retry accepté, à coup sûr | créer un paiement avec `"reference": {"type": "BOOKING", "id": "demo-refuse-once-1"}` (ou bouton « Refus puis retry accepté » dans `/ui`) : `REFUSED → ACCEPTED` |
+| Un refus définitif, à coup sûr | référence `demo-refuse-always-1` (ou bouton « Refus définitif ») : `REFUSED → REFUSED`, demande `REFUSED` ; fonctionne aussi en production |
+| Tous les paiements refusés | `PAYMENT_FAILURE_RATE=1 PAYMENT_PENDING_DELAY_SECONDS=3 uvicorn app.main:create_app --factory` |
+| La nouvelle présentation par l'appelant après un refus définitif | rejouer la même clé : `200`, toujours `REFUSED` ; créer une nouvelle demande (nouvelle clé) : nouvel essai (bouton « Représenter ce paiement » dans `/ui`) |
 | Un paiement toujours accepté | `PAYMENT_FAILURE_RATE=0` |
 | Un conflit d'idempotence | envoyer deux `POST` avec la même `idempotency_key` et des montants différents : `409` |
 | La corrélation des logs | envoyer `-H 'X-Request-ID: demo-1'` puis `grep demo-1` dans la sortie du serveur |

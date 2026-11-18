@@ -195,6 +195,10 @@ Le champ `transactions[]` donne le détail des tentatives si besoin de diagnosti
   (`"1250"`), un décimal (`12.5`) ou un booléen est refusé (`422`). `currency` figé à `"EUR"`.
 - `idempotency_key` : 1 à 200 caractères ; `reference.id` : 1 à 100 caractères.
 - Champs inconnus dans le corps : ignorés.
+- **Références de démonstration** : tant que la passerelle est simulée, un `reference.id` commençant
+  par `demo-refuse-once` est refusé à la 1ʳᵉ tentative puis accepté au retry, et `demo-refuse-always`
+  est refusé aux deux tentatives. Utile pour tester votre gestion du refus ; n'utilisez pas ce préfixe
+  pour de vraies références.
 
 **Traçabilité.** Envoyez un en-tête `X-Request-ID` (lettres, chiffres, `.`, `_`, `-`, 64 caractères max)
 pour retrouver votre appel dans nos logs ; sinon nous en générons un et le renvoyons dans l'en-tête de

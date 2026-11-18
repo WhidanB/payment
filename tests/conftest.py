@@ -29,7 +29,7 @@ class ScriptedGateway(PaymentGateway):
         self._default = default
         self.calls = 0
 
-    async def authorize(self, *, amount, currency, reference) -> GatewayResult:
+    async def authorize(self, *, amount, currency, reference, **_) -> GatewayResult:
         self.calls += 1
         approved = self._outcomes.popleft() if self._outcomes else self._default
         return GatewayResult(approved=approved, detail=None if approved else "forced_refusal")

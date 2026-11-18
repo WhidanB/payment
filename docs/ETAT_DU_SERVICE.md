@@ -197,6 +197,14 @@ La `idempotency_key` identifie la demande. Un rejeu renvoie la demande existante
 la même clé sont sérialisés par un verrou par clé : une seule demande, un seul encaissement. Une clé
 réutilisée avec une requête différente est refusée (`409`) au lieu de renvoyer silencieusement l'ancienne.
 
+### Démontrer un refus
+
+La passerelle simulée reçoit le numéro de tentative et l'identifiant de transaction. Comme les cartes
+de test Stripe, certaines références forcent l'issue : `demo-refuse-once…` (refus à la tentative 1,
+acceptation au retry) et `demo-refuse-always…` (refus aux deux tentatives). La console `/ui` propose
+un bouton pour chacun, affiche la chaîne des tentatives (`REFUSED → ACCEPTED`) et permet de
+représenter une demande définitivement refusée (nouvelle demande, nouvelle clé).
+
 ### Pannes de la passerelle
 
 Si la passerelle lève une exception, la transaction est journalisée (`gateway.error`) et traitée comme
@@ -281,7 +289,7 @@ app/
 ## 7. Tests et vérification
 
 `./scripts/verify.sh` (identique à la CI) : `ruff check` (dont complexité cyclomatique ≤ 10), `ruff format --check`,
-`pytest --cov` — **123 tests**, couverture de branches ~99,7 % (seuil 90 %), < 3 s. Tests déterministes :
+`pytest --cov` — **131 tests**, couverture de branches ~99,7 % (seuil 90 %), < 3 s. Tests déterministes :
 passerelle forcée, résolution pilotée à la main, aucun `sleep`.
 
 | Fichier | Couverture |

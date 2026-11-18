@@ -31,9 +31,15 @@ def new_payment(key: str) -> PaymentRequest:
 # -- simulated gateway ------------------------------------------------------------------
 
 
+async def authorize(gateway, reference, attempt=1):
+    return await gateway.authorize(
+        amount=100, currency="EUR", reference=reference, transaction_id="tx", attempt=attempt
+    )
+
+
 async def approvals(rate: float, n: int, seed: int = 1) -> int:
     gateway = SimulatedPaymentGateway(failure_rate=rate, rng=random.Random(seed))
-    results = [await gateway.authorize(amount=100, currency="EUR", reference=REF) for _ in range(n)]
+    results = [await authorize(gateway, REF) for _ in range(n)]
     return sum(r.approved for r in results)
 
 
@@ -53,7 +59,7 @@ async def test_default_rate_refuses_about_five_percent():
 
 async def test_refusal_carries_a_detail():
     gateway = SimulatedPaymentGateway(failure_rate=1.0)
-    result = await gateway.authorize(amount=100, currency="EUR", reference=REF)
+    result = await authorize(gateway, REF)
     assert result.approved is False and result.detail == "simulated_refusal"
 
 
@@ -141,3 +147,25 @@ async def test_scheduler_shutdown_cancels_pending_work():
     await asyncio.sleep(0.05)
 
     assert not ran.is_set()
+
+
+@pytest.mark.parametrize(
+    "reference_id,attempt,approved",
+    [
+        ("demo-refuse-once", 1, False),
+        ("demo-refuse-once", 2, True),
+        ("demo-refuse-once-resa_42", 1, False),
+        ("demo-refuse-always", 1, False),
+        ("demo-refuse-always-stay_9", 2, False),
+    ],
+)
+async def test_demo_reference_ids_force_a_deterministic_outcome(reference_id, attempt, approved):
+    gateway = SimulatedPaymentGateway(failure_rate=0.0)  # random draw would always approve
+    ref = PaymentReference(ReferenceType.BOOKING, reference_id)
+    assert (await authorize(gateway, ref, attempt)).approved is approved
+
+
+async def test_ordinary_reference_ids_ignore_the_attempt_number():
+    gateway = SimulatedPaymentGateway(failure_rate=0.0)
+    for attempt in (1, 2):
+        assert (await authorize(gateway, REF, attempt)).approved is True

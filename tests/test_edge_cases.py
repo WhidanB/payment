@@ -34,7 +34,7 @@ class FlakyGateway(PaymentGateway):
         self.failures = failures
         self.calls = 0
 
-    async def authorize(self, *, amount, currency, reference) -> GatewayResult:
+    async def authorize(self, *, amount, currency, reference, **_) -> GatewayResult:
         self.calls += 1
         if self.calls <= self.failures:
             raise ConnectionError("provider unreachable")

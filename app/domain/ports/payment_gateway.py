@@ -25,5 +25,11 @@ class PaymentGateway(ABC):
         amount: int,
         currency: str,
         reference: PaymentReference,
+        transaction_id: str,
+        attempt: int,
     ) -> GatewayResult:
-        """Attempt to capture the amount. Never raises for a business refusal."""
+        """Attempt to capture the amount. Never raises for a business refusal.
+
+        `transaction_id` is unique per attempt: a real provider uses it as its own
+        idempotency key so a network retry of the same attempt never charges twice.
+        """

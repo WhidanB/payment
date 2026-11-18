@@ -63,7 +63,8 @@ Aucun flux asynchrone (broker) n'est utilisé pour l'instant : le résultat est 
 La console `/ui` (servie par le service lui-même, `/` y redirige) permet de manipuler et d'observer le service sans outil externe :
 
 - **Objets et états** : liste des demandes de paiement (statut, montant, référence, appelant, nombre de tentatives, progression du délai `PENDING`), compteurs par statut, détail d'une demande avec chacune de ses transactions (identifiant, tentative, statut, durée) et la réponse JSON brute.
-- **Opérations** : créer une demande (clé d'idempotence, montant en centimes, référence, service appelant), **rejouer la même requête** pour montrer l'idempotence (`200`, même `payment_id`, pas de nouvelle transaction), générer un lot de 20 paiements pour observer un refus suivi de son retry.
+- **Opérations** : créer une demande (clé d'idempotence, montant en centimes, référence, service appelant), **rejouer la même requête** pour montrer l'idempotence (`200`, même `payment_id`, pas de nouvelle transaction), générer un lot de 20 paiements pour voir la répartition réelle.
+- **Refus et nouvelle présentation, à coup sûr** : « Refus puis retry accepté » et « Refus définitif » créent une demande dont l'issue est garantie. La colonne Tentatives montre la chaîne (`REFUSED → PENDING`, puis `REFUSED → ACCEPTED` ou `REFUSED → REFUSED`), le détail raconte ce qui s'est passé et relie les tentatives. Une demande définitivement refusée peut être **représentée** (nouvelle demande, nouvelle clé, même montant et même référence).
 - **Résultat des actions** : journal des appels effectués depuis la page (code HTTP, résumé, requête et réponse dépliables) et rafraîchissement automatique toutes les 2 s.
 - **Contexte** : version, délai `PENDING`, nombre max de tentatives, taux de refus simulé, authentification active ou non, et rappel du vocabulaire métier.
 - La page est publique ; si l'authentification est active, saisir la clé API en haut à droite (gardée uniquement pour l'onglet, dans `sessionStorage`).
@@ -157,6 +158,7 @@ Le détail des scénarios, du polling et de la gestion d'erreurs est dans le [gu
 - [x] Le paiement est asynchrone : `PENDING` pendant 15 s puis `ACCEPTED` ou `REFUSED`.
 - [x] Un refus déclenche un retry automatique (une seule fois).
 - [x] Environ 5 % des paiements simulés sont refusés, pour tester le comportement en cas d'échec.
+- [x] Un refus suivi de sa nouvelle présentation automatique se démontre à coup sûr (références `demo-refuse-once…` / `demo-refuse-always…`, boutons dans `/ui`).
 - [x] Chaque transaction et chaque changement d'état est journalisé (JSON, corrélé par `request_id`).
 - [x] Les entrées invalides sont refusées (`422`) et la réutilisation d'une clé avec une requête différente est refusée (`409`).
 - [x] Une panne de la passerelle ne laisse jamais une transaction bloquée en `PENDING`.
@@ -193,7 +195,7 @@ Pour brancher Stripe : ajouter `stripe_payment_gateway.py` implémentant `Paymen
 
 - Python 3.12 (Render, `.python-version`), FastAPI, Pydantic v2, pydantic-settings, uuid-utils, uvicorn
 - Architecture hexagonale (domain / application / adapters)
-- Tests : pytest + httpx, 123 tests (domaine, adapters, flux asynchrone, validation, cas limites, logs, API), couverture de branches ~99,7 % (seuil 90 %) ; UI vérifiée dans Chromium headless (Playwright, hors dépendances du projet)
+- Tests : pytest + httpx, 131 tests (domaine, adapters, flux asynchrone, validation, cas limites, logs, API), couverture de branches ~99,7 % (seuil 90 %) ; UI vérifiée dans Chromium headless (Playwright, hors dépendances du projet)
 - Qualité : ruff (lint, format, complexité cyclomatique ≤ 10), GitHub Actions (`.github/workflows/ci.yml`), `scripts/verify.sh` pour les mêmes contrôles en local
 - Interface : une page HTML/CSS/JS vanilla sans dépendance, servie par FastAPI
 - Logs JSON structurés, `X-Request-ID` de bout en bout (y compris la résolution asynchrone)
@@ -210,7 +212,7 @@ uvicorn app.main:create_app --factory --reload
 
 Swagger : http://127.0.0.1:8000/docs
 
-Pour voir un refus suivi du retry : `PAYMENT_FAILURE_RATE=1 PAYMENT_PENDING_DELAY_SECONDS=3 uvicorn app.main:create_app --factory`.
+Pour voir un refus suivi du retry, sans changer la configuration : utiliser une référence commençant par `demo-refuse-once` (refusée à la tentative 1, acceptée au retry) ou `demo-refuse-always` (refusée aux deux tentatives), ou les boutons de démonstration de `/ui`. Pour que tous les paiements soient refusés : `PAYMENT_FAILURE_RATE=1 PAYMENT_PENDING_DELAY_SECONDS=3 uvicorn app.main:create_app --factory`.
 
 ## Configuration
 
@@ -227,7 +229,7 @@ Pour voir un refus suivi du retry : `PAYMENT_FAILURE_RATE=1 PAYMENT_PENDING_DELA
 - Persistance en mémoire : l'historique est perdu à chaque redéploiement ou mise en veille de Render.
 - Une transaction `PENDING` au moment d'un redémarrage n'est jamais résolue.
 - Un seul worker obligatoire (état et tâches de résolution dans le process).
-- Passerelle simulée : aucun encaissement réel.
+- Passerelle simulée : aucun encaissement réel. Les références commençant par `demo-refuse-` déclenchent des refus de démonstration ; elles n'auront plus d'effet avec Stripe.
 - Pas d'événements publiés : les appelants doivent faire du polling.
 
 ## Aspects de maturité
@@ -238,6 +240,6 @@ Pour voir un refus suivi du retry : `PAYMENT_FAILURE_RATE=1 PAYMENT_PENDING_DELA
 | API / Déploiement | 3 - Maîtrisé | En ligne sur Render, /health, Swagger/ReDoc, version 0.1.0 |
 | Intégration | 1 - Défini | Contrat d'API et guide fournis à Booking et Access, pas encore d'appel réel validé. Passera à 2 avec un premier appel réel de leur part |
 | Interface | 2 - Fonctionnel | Console `/ui` : objets, états, opérations, journal des actions, clé API. Pas de tests automatisés de l'UI dans le dépôt |
-| Qualité | 3 - Maîtrisé | 123 tests dont entrées invalides, cas limites, concurrence et panne du prestataire (vérifiés par mutation), couverture ~99,7 %, ruff + complexité, logs JSON corrélés, [guide de vérification](docs/VERIFICATION.md). Pas d'audit des dépendances (pip-audit) |
+| Qualité | 3 - Maîtrisé | 131 tests dont entrées invalides, cas limites, concurrence et panne du prestataire (vérifiés par mutation), couverture ~99,7 %, ruff + complexité, logs JSON corrélés, [guide de vérification](docs/VERIFICATION.md). Pas d'audit des dépendances (pip-audit) |
 | CI/CD | 2 - Fonctionnel | Déploiement continu Render sur push et workflow GitHub Actions (lint, format, tests, couverture) ; premier passage à constater après le push, pas de branch protection |
 | Sécurité | 2 - Fonctionnel | `X-API-Key` implémentée, pas encore activée en production. Pas de rate limiting ni de headers de sécurité |
