@@ -115,12 +115,16 @@ def test_validation_error_names_the_offending_field(client):
     assert detail[0]["loc"][-1] == "amount"
 
 
-@pytest.mark.parametrize("path", ["/payments/does-not-exist", "/payments/%20", "/payments/" + "x" * 500])
+@pytest.mark.parametrize(
+    "path", ["/payments/does-not-exist", "/payments/%20", "/payments/" + "x" * 500]
+)
 def test_unknown_payment_ids_are_404(client, path):
     assert client.get(path).status_code == 404
 
 
-@pytest.mark.parametrize("limit,expected", [(1, 200), (200, 200), (0, 422), (201, 422), ("abc", 422), (-1, 422)])
+@pytest.mark.parametrize(
+    "limit,expected", [(1, 200), (200, 200), (0, 422), (201, 422), ("abc", 422), (-1, 422)]
+)
 def test_list_limit_bounds(client, limit, expected):
     assert client.get("/payments", params={"limit": limit}).status_code == expected
 

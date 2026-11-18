@@ -40,8 +40,6 @@ class Transaction:
 
     def _resolve(self, status: TransactionStatus) -> None:
         if not self.is_pending:
-            raise TransactionAlreadyResolved(
-                f"transaction {self.id} already {self.status.value}"
-            )
+            raise TransactionAlreadyResolved(f"transaction {self.id} already {self.status.value}")
         self.status = status
         self.resolved_at = now()

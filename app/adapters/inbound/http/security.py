@@ -18,7 +18,9 @@ from app.container import Container
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
-async def require_api_key(request: Request, provided_key: str | None = Security(_api_key_header)) -> None:
+async def require_api_key(
+    request: Request, provided_key: str | None = Security(_api_key_header)
+) -> None:
     container: Container = request.app.state.container
     expected = container.settings.api_key
     if not expected:

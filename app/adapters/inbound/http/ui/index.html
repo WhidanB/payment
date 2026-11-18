@@ -190,6 +190,7 @@
     if (out.netErr) return "Service injoignable (réveil de l'instance en cours ?)";
     if (out.status === 401) return "Clé API absente ou invalide";
     if (out.status === 422) return "Requête invalide (voir détail)";
+    if (out.status === 409) return "Conflit : cette clé d'idempotence a déjà servi pour une requête différente";
     if (out.status === 404) return "Introuvable";
     if (method === "POST" && out.status === 202) return "Demande créée → " + out.data.status + " · " + short(out.data.payment_id);
     if (method === "POST" && out.status === 200) return "Rejeu idempotent : même demande " + short(out.data.payment_id) + ", pas de nouvelle transaction (" + out.data.transactions.length + ")";

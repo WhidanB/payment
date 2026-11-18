@@ -13,12 +13,10 @@ class PaymentRepository(ABC):
         """Insert or update the aggregate (transactions included)."""
 
     @abstractmethod
-    async def get(self, payment_id: str) -> PaymentRequest | None:
-        ...
+    async def get(self, payment_id: str) -> PaymentRequest | None: ...
 
     @abstractmethod
-    async def find_by_idempotency_key(self, idempotency_key: str) -> PaymentRequest | None:
-        ...
+    async def find_by_idempotency_key(self, idempotency_key: str) -> PaymentRequest | None: ...
 
     @abstractmethod
     async def list_recent(self, limit: int) -> list[PaymentRequest]:

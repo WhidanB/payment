@@ -1,0 +1,15 @@
+line-length = 100
+target-version = "py310"
+
+[lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "C90", "RUF"]
+ignore = ["UP037"]  # keep quoted return annotations in dataclass factories
+
+[lint.mccabe]
+max-complexity = 10
+
+[lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Security", "fastapi.Query"]
+
+[lint.per-file-ignores]
+"tests/*" = ["B011", "RUF012"]

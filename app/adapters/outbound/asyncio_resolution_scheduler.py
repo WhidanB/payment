@@ -29,7 +29,7 @@ class AsyncioResolutionScheduler(ResolutionScheduler):
             await callback()
         except asyncio.CancelledError:
             raise
-        except Exception:  # noqa: BLE001 - a background task must not die silently
+        except Exception:
             logger.exception("scheduler.callback_failed")
 
     async def shutdown(self) -> None:

@@ -63,7 +63,7 @@ def create_app() -> FastAPI:
         try:
             response = await call_next(request)
             status_code = response.status_code
-        except Exception:  # noqa: BLE001 - last-resort handler, keeps the 500 body JSON
+        except Exception:
             logger.exception("http.unhandled_error")
             response = JSONResponse(
                 {"detail": "internal server error", "request_id": request_id}, status_code=500

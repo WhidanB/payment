@@ -127,10 +127,8 @@ class PaymentService:
                 currency=payment.currency,
                 reference=payment.reference,
             )
-        except Exception:  # noqa: BLE001 - a provider outage must not strand the transaction
-            logger.exception(
-                "gateway.error", extra=_fields(payment, transaction=transaction)
-            )
+        except Exception:
+            logger.exception("gateway.error", extra=_fields(payment, transaction=transaction))
             result = GatewayResult(approved=False, detail="gateway_error")
 
         if result.approved:

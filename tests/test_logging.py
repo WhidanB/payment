@@ -90,9 +90,10 @@ def test_request_id_is_generated_echoed_or_replaced(client):
     generated = client.get("/health").headers["X-Request-ID"]
     assert len(generated) == 36
 
-    assert client.get("/health", headers={"X-Request-ID": "trace-abc.123"}).headers[
-        "X-Request-ID"
-    ] == "trace-abc.123"
+    assert (
+        client.get("/health", headers={"X-Request-ID": "trace-abc.123"}).headers["X-Request-ID"]
+        == "trace-abc.123"
+    )
 
     replaced = client.get("/health", headers={"X-Request-ID": "bad id\twith spaces"}).headers[
         "X-Request-ID"

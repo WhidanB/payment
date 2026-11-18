@@ -77,7 +77,9 @@ async def test_reusing_a_key_with_another_amount_raises_a_conflict(make_service,
         await service.request_payment(replace(command, amount=command.amount + 1))
 
 
-async def test_gateway_exception_is_treated_as_a_refusal_and_retried(make_service, scheduler, command):
+async def test_gateway_exception_is_treated_as_a_refusal_and_retried(
+    make_service, scheduler, command
+):
     gateway = FlakyGateway(failures=1)
     service = make_service(gateway)
 
@@ -92,7 +94,9 @@ async def test_gateway_exception_is_treated_as_a_refusal_and_retried(make_servic
     ]
 
 
-async def test_persistent_gateway_outage_ends_refused_never_pending(make_service, scheduler, command):
+async def test_persistent_gateway_outage_ends_refused_never_pending(
+    make_service, scheduler, command
+):
     service = make_service(FlakyGateway(failures=99))
 
     created = await service.request_payment(command)
@@ -115,7 +119,9 @@ async def test_resolving_the_same_transaction_twice_charges_once(make_service, s
     assert gateway.calls == 1
 
 
-async def test_a_settled_payment_is_never_touched_by_a_late_resolution(make_service, scheduler, command):
+async def test_a_settled_payment_is_never_touched_by_a_late_resolution(
+    make_service, scheduler, command
+):
     gateway = ScriptedGateway(outcomes=[False, True])
     service = make_service(gateway)
     created = await service.request_payment(command)
@@ -143,3 +149,16 @@ async def test_list_payments_is_newest_first_and_respects_the_limit(make_service
     listed = await service.list_payments(limit=3)
 
     assert [p.idempotency_key for p in listed] == ["k-4", "k-3", "k-2"]
+
+
+async def test_resolution_of_a_vanished_payment_is_a_no_op(
+    make_service, scheduler, repository, command
+):
+    gateway = ScriptedGateway()
+    service = make_service(gateway)
+    created = await service.request_payment(command)
+    del repository._by_id[created.payment.id]
+
+    await scheduler.run_all()
+
+    assert gateway.calls == 0

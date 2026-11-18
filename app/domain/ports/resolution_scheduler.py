@@ -7,7 +7,7 @@ stays framework-free and tests can resolve immediately.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
 
 ResolutionCallback = Callable[[], Awaitable[None]]
 
