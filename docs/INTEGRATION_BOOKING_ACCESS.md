@@ -176,7 +176,8 @@ Le champ `transactions[]` donne le détail des tentatives si besoin de diagnosti
 | `202` | demande créée | démarrer le polling |
 | `200` | rejeu d'une `idempotency_key` connue | traiter comme une réponse normale (idempotent, pas une erreur) |
 | `401` | `X-API-Key` absent ou incorrect | vérifier la clé configurée côté appelant — **bug de config**, pas de retry utile |
-| `422` | corps invalide (montant ≤ 0, `reference.type`/`source_service` inconnu, clé manquante) | **bug côté appelant** — corriger l'appel, ne pas retenter tel quel |
+| `409` | `idempotency_key` déjà utilisée avec une requête **différente** (montant, référence ou service) | **bug côté appelant** : une clé = une opération. Ne pas retenter ; la demande d'origine est intacte |
+| `422` | corps invalide (voir ci-dessous) ; `detail` désigne le champ fautif | **bug côté appelant** — corriger l'appel, ne pas retenter tel quel |
 | `404` | `GET /payments/{id}` sur un id inconnu | ne devrait pas arriver si vous utilisez l'id renvoyé par le `POST` — à investiguer |
 | `5xx` / timeout réseau / pas de réponse | panne ou cold start Render | **retry avec la même `idempotency_key`** après un court délai — sans risque de double paiement |
 
@@ -190,7 +191,15 @@ Le champ `transactions[]` donne le détail des tentatives si besoin de diagnosti
   l'historique des demandes en cours. Sans impact sur une demande déjà résolue consultée
   juste après, mais ne construisez pas de logique qui dépend de paiements anciens
   retrouvables indéfiniment.
-- `amount` est un **entier en centimes** (`1250` = 12,50 €), `currency` figé à `"EUR"`.
+- `amount` est un **entier en centimes** (`1250` = 12,50 €), de 1 à 10 000 000. Un texte
+  (`"1250"`), un décimal (`12.5`) ou un booléen est refusé (`422`). `currency` figé à `"EUR"`.
+- `idempotency_key` : 1 à 200 caractères ; `reference.id` : 1 à 100 caractères.
+- Champs inconnus dans le corps : ignorés.
+
+**Traçabilité.** Envoyez un en-tête `X-Request-ID` (lettres, chiffres, `.`, `_`, `-`, 64 caractères max)
+pour retrouver votre appel dans nos logs ; sinon nous en générons un et le renvoyons dans l'en-tête de
+la réponse. Communiquez-le-nous en cas de problème : il relie la création du paiement et sa résolution
+15 s plus tard.
 
 ---
 

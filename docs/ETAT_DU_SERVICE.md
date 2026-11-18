@@ -117,11 +117,11 @@ Requête :
 
 | champ | règle |
 |---|---|
-| `idempotency_key` | requis, non vide |
-| `amount` | entier, **centimes**, > 0 |
+| `idempotency_key` | requis, 1 à 200 caractères (espaces de bord retirés) |
+| `amount` | **entier strict**, centimes, de 1 à 10 000 000 (`"1250"`, `12.5`, `true` refusés) |
 | `currency` | `EUR` |
 | `reference.type` | `BOOKING` \| `PARKING_EXIT` |
-| `reference.id` | id de la réservation ou du stationnement |
+| `reference.id` | id de la réservation ou du stationnement, 1 à 100 caractères |
 | `source_service` | `booking` \| `access` |
 
 Réponse :
@@ -143,9 +143,13 @@ Réponse :
 }
 ```
 
-- `422` — corps invalide (montant ≤ 0, `type`/`source_service` inconnu, clé manquante).
-- Rejeu d'une `idempotency_key` déjà connue → `200` avec la demande existante, **sans**
-  nouvelle transaction.
+- `422` — corps invalide (montant hors bornes ou non entier, devise, `type`/`source_service` inconnu,
+  clé ou référence vide / trop longue, JSON invalide) ; `detail` désigne le champ fautif, rien n'est créé.
+- Rejeu d'une `idempotency_key` déjà connue avec la **même** requête → `200` avec la demande
+  existante, **sans** nouvelle transaction.
+- Réutilisation d'une clé avec une requête **différente** (montant, référence, appelant) → `409`,
+  la demande d'origine est inchangée.
+- Toutes les réponses portent `X-Request-ID` (celui de l'appelant s'il est valide, sinon généré).
 
 ### `GET /payments/{payment_id}` → `200 OK`
 
@@ -190,7 +194,13 @@ coordonnée avec les appelants).
 
 La `idempotency_key` identifie la demande. Un rejeu renvoie la demande existante
 (`200`), sans créer de transaction ni rappeler la passerelle. Deux appels concurrents avec
-la même clé sont sérialisés par un verrou par clé.
+la même clé sont sérialisés par un verrou par clé : une seule demande, un seul encaissement. Une clé
+réutilisée avec une requête différente est refusée (`409`) au lieu de renvoyer silencieusement l'ancienne.
+
+### Pannes de la passerelle
+
+Si la passerelle lève une exception, la transaction est journalisée (`gateway.error`) et traitée comme
+un **refus** : le retry s'applique, et la demande ne reste jamais bloquée en `PENDING`.
 
 ### Résolution asynchrone
 
@@ -214,9 +224,14 @@ POST ─▶ [tx1 PENDING] ──15s──▶ ACCEPTED ─▶ demande ACCEPTED
 
 Chaque changement d'état émet **une ligne JSON** sur `stdout` : `payment.requested`,
 `transaction.created`, `gateway.authorize`, `transaction.accepted` / `transaction.refused`,
-`payment.retry_scheduled`, `payment.accepted` / `payment.refused`, `payment.idempotent_hit`.
-Champs : `payment_id`, `transaction_id`, `attempt`, `idempotency_key`, `amount`, `currency`,
-`reference_*`, `source_service`, statut.
+`payment.retry_scheduled`, `payment.accepted` / `payment.refused`, `payment.idempotent_hit`,
+`payment.idempotency_conflict`, `gateway.error`, et une ligne `http.request` par appel
+(`method`, `path`, `status`, `duration_ms`). Champs : `payment_id`, `transaction_id`, `attempt`,
+`idempotency_key`, `amount`, `currency`, `reference_*`, `source_service`, statut, `request_id`.
+
+Le `request_id` (en-tête `X-Request-ID`) relie tous les événements d'une requête, **y compris la
+résolution asynchrone** déclenchée 15 s plus tard. `/health` et la liste sondée par l'UI ne sont
+journalisés qu'en `DEBUG`. Catalogue complet et requêtes `jq` : [VERIFICATION.md](VERIFICATION.md).
 
 ---
 
@@ -258,28 +273,38 @@ app/
 | `PAYMENT_PENDING_DELAY_SECONDS` | `15` | durée du statut `PENDING` d'une transaction |
 | `PAYMENT_FAILURE_RATE` | `0.05` | part de refus simulés par la passerelle |
 | `PAYMENT_MAX_ATTEMPTS` | `2` | nombre de transactions par demande (1 + 1 retry) |
+| `PAYMENT_LOG_LEVEL` | `INFO` | niveau de logs (`DEBUG` journalise aussi `/health` et la liste) |
+| `PAYMENT_API_KEY` | _non défini_ | clé attendue dans `X-API-Key` ; non défini = contrôle désactivé |
 
 ---
 
-## 7. Tests
+## 7. Tests et vérification
 
-`pytest` — **14 tests**, < 1 s (passerelle forcée, résolution drainée manuellement, aucun sleep).
+`./scripts/verify.sh` (identique à la CI) : `ruff check` (dont complexité cyclomatique ≤ 10), `ruff format --check`,
+`pytest --cov` — **123 tests**, couverture de branches ~99,7 % (seuil 90 %), < 3 s. Tests déterministes :
+passerelle forcée, résolution pilotée à la main, aucun `sleep`.
 
 | Fichier | Couverture |
 |---|---|
-| `tests/test_idempotency.py` | même clé = même demande · pas de recharge après règlement · clés distinctes |
-| `tests/test_payment_flow.py` | démarrage `PENDING` · résolution `PENDING → ACCEPTED` · format UUID v7 |
-| `tests/test_retry.py` | refus → retry → accepté · deux refus → `REFUSED` · `max_attempts=1` = pas de retry |
-| `tests/test_api.py` | e2e HTTP : health · 202 / 200 / 422 / 404 · polling |
+| `tests/test_validation.py` | matrice d'entrées invalides (`422`), valeurs limites acceptées, `405`/`404`, bornes de `limit`, conflits d'idempotence (`409`) |
+| `tests/test_edge_cases.py` | 25 appels concurrents = 1 encaissement, panne du prestataire, double résolution, résolution tardive, tri de la liste |
+| `tests/test_idempotency.py`, `test_payment_flow.py`, `test_retry.py` | idempotence, flux `PENDING → ACCEPTED`, refus → retry → refus |
+| `tests/test_domain.py` | invariants, UUID v7, tentatives, comparaison métier |
+| `tests/test_adapters.py` | passerelle simulée (taux 0 / 1 / 5 %), dépôt en mémoire, planificateur asyncio |
+| `tests/test_logging.py` | JSON valide, corrélation `request_id`, événements attendus, niveau de log, clé API jamais journalisée, `500` JSON |
+| `tests/test_api.py`, `tests/test_api_key.py` | e2e HTTP, authentification |
 
-Exploration manuelle : `scripts/requests.sh` (`BASE_URL=… ./scripts/requests.sh`).
+Les trois garde-fous critiques (verrou par clé, capture des exceptions de la passerelle, détection de
+conflit) ont été vérifiés par mutation : les désactiver fait échouer les tests. Détail, scénarios manuels et
+limites : [VERIFICATION.md](VERIFICATION.md). Exploration manuelle : `scripts/requests.sh`.
 
 ---
 
 ## 8. Déploiement (Render)
 
 - `render.yaml` : web service Python (plan free), `healthCheckPath: /health`,
-  start `uvicorn app.main:create_app --factory --host 0.0.0.0 --port $PORT --workers 1`
+  start `uvicorn app.main:create_app --factory --host 0.0.0.0 --port $PORT --workers 1 --no-access-log`
+  (les logs d'accès sont émis par l'application, en JSON)
 - `.python-version` : `3.12.8` (le défaut Render 3.14 empêchait l'installation de `pydantic-core`)
 - Déploiement automatique à chaque push sur `master`
 
@@ -297,6 +322,7 @@ Exploration manuelle : `scripts/requests.sh` (`BASE_URL=… ./scripts/requests.s
 | **Un seul worker** obligatoire | pas de scalabilité horizontale | conséquence directe de la persistance mémoire |
 | Passerelle **simulée** | aucun encaissement réel | adapter Stripe |
 | Pas d'événements publiés | Booking/Access doivent **poller** | publication `PaymentResolved` sur un broker |
+| Aucun test automatisé de l'UI `/ui` ni audit des dépendances | régression visuelle ou vulnérabilité non détectée par la CI | Playwright / `pip-audit` en CI |
 | Contrat d'API défini unilatéralement | risque de désalignement | validation avec les équipes Booking / Access |
 | `render.yaml` : `PYTHON_VERSION` ignoré par Render | corrigé via `.python-version` | — |
 

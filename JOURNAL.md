@@ -76,7 +76,7 @@
 - Adapter Stripe.
 - Optionnel : CI (GitHub Actions), événements PaymentAccepted / PaymentRefused pour éviter le polling.
 
-## 18 novembre
+## 18 novembre — matin
 
 ### Fait
 
@@ -102,3 +102,42 @@
 - Activer `PAYMENT_API_KEY` après avoir prévenu Booking et Access, puis tester ensemble.
 - Persistance Postgres et reprise des transactions PENDING au démarrage.
 - Optionnel : tests automatisés de l'UI, forcer un refus à la demande pour la démonstration.
+
+## 18 novembre — après-midi
+
+### Fait
+
+Jalon 9 (qualité et fiabilité). Audit du comportement du service, puis corrections et preuves.
+
+#### Entrées invalides
+- Montant : entier strict de 1 à 10 000 000 centimes (`"1250"`, `12.5` et `true` n'étaient plus acceptés silencieusement), devise `EUR` déclarée dans le schéma, clé d'idempotence et identifiant de référence nettoyés, non vides et bornés (200 / 100 caractères).
+- Réponses d'erreur documentées dans OpenAPI (401, 409, 422).
+
+#### Cas limites corrigés
+- Une clé d'idempotence réutilisée avec une requête différente renvoyait silencieusement l'ancienne demande : elle renvoie maintenant `409` et la demande d'origine reste intacte.
+- Une exception de la passerelle (panne du prestataire) laissait la transaction en `PENDING` pour toujours : elle est journalisée et traitée comme un refus, donc le retry s'applique.
+- Clé API comparée avec `hmac.compare_digest` (temps constant).
+
+#### Logs exploitables
+- `X-Request-ID` accepté, généré ou renvoyé, porté par toutes les lignes de log de la requête, y compris la résolution asynchrone 15 s plus tard.
+- Une ligne `http.request` par appel (méthode, chemin, statut, durée), `/health` et la liste sondée par l'UI en `DEBUG` seulement, `500` JSON avec `request_id`, `PAYMENT_LOG_LEVEL`, logs d'accès uvicorn désactivés (remplacés par les nôtres en JSON).
+
+#### Vérifiabilité
+- 24 → 123 tests : matrice d'entrées invalides, valeurs limites, conflits d'idempotence, 25 appels concurrents, panne du prestataire, double résolution, invariants du domaine, adapters, contenu des logs. Couverture de branches 99,7 % (seuil 90 %).
+- Les trois garde-fous critiques (verrou par clé, capture des exceptions de la passerelle, détection de conflit) vérifiés par mutation : les désactiver fait échouer les tests.
+- Outillage : `ruff` (lint, format, complexité cyclomatique ≤ 10), `requirements-dev.txt` séparé du runtime, workflow GitHub Actions, `scripts/verify.sh` (mêmes contrôles en local).
+- Documentation à jour : `docs/VERIFICATION.md` (nouvelle : commande unique, cas testés, catalogue des logs, scénarios manuels, vérification en production), README, `ETAT_DU_SERVICE.md`, guide d'intégration (409, bornes, `X-Request-ID`).
+- Vérifié de bout en bout : démarrage avec les seules dépendances runtime, logs réels corrélés par `request_id`, console `/ui` toujours fonctionnelle dans Chromium headless.
+
+### Problèmes
+
+- Les tests de logs passaient à vide (aucune sortie capturée) : le handler gardait une référence à un ancien `stdout`. Corrigé en résolvant `sys.stdout` à chaque écriture, et ajout d'une assertion « sortie non vide ».
+- `ruff` a signalé des commentaires `noqa` inutiles et des lignes trop longues : corrigés, un passage de format sur tout le dépôt.
+- Branche « règle violée après validation du schéma » de la route non atteignable par HTTP : conservée comme filet de sécurité, couverte au niveau du domaine.
+
+### Suite
+
+- Pousser (7 commits en attente environ) et constater le premier passage de la CI GitHub Actions.
+- Redéployer sur Render et vérifier `/ui`, `X-Request-ID` et le `409` en production.
+- Optionnel : `pip-audit` en CI, branch protection sur `master`, tests automatisés de l'UI.
+- Activer `PAYMENT_API_KEY` après avoir prévenu Booking et Access ; persistance Postgres et reprise des `PENDING`.

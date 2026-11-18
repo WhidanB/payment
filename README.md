@@ -35,6 +35,7 @@ Render gratuit : après ~15 min d'inactivité, le premier appel met 30 à 50 s �
 |---|---|
 | [docs/INTEGRATION_BOOKING_ACCESS.md](docs/INTEGRATION_BOOKING_ACCESS.md) | Guide pour Booking et Access : exemples par scénario, polling, idempotence, erreurs |
 | [docs/ETAT_DU_SERVICE.md](docs/ETAT_DU_SERVICE.md) | État détaillé du service : périmètre, modèle, comportement, limites |
+| [docs/VERIFICATION.md](docs/VERIFICATION.md) | Vérifier et reproduire le fonctionnement : commande unique, cas testés, logs, scénarios manuels |
 | [JOURNAL.md](JOURNAL.md) | Journal de travail jour par jour |
 
 ## Dépendances avec les autres services
@@ -109,7 +110,7 @@ L'en-tête `X-API-Key` n'est exigé qu'une fois la clé activée sur le serveur 
 
 | Route | Description | Codes |
 |---|---|---|
-| `POST /payments` | Crée une demande et sa première transaction | `202` (créée), `200` (rejeu idempotent), `401`, `422` |
+| `POST /payments` | Crée une demande et sa première transaction | `202` (créée), `200` (rejeu idempotent), `401`, `409` (clé déjà utilisée avec une requête différente), `422` |
 | `GET /payments/{payment_id}` | Statut agrégé et toutes les transactions | `200`, `401`, `404` |
 | `GET /payments?limit=50` | Demandes récentes, les plus récentes d'abord (utilisé par l'UI, 1 à 200) | `200`, `401`, `422` |
 | `GET /health` | Santé du service, avec la configuration utile à l'UI | `200` |
@@ -119,12 +120,14 @@ Corps de `POST /payments` :
 
 | Champ | Règle |
 |---|---|
-| `idempotency_key` | Obligatoire, unique par opération métier |
-| `amount` | Entier en **centimes**, > 0 (`1250` = 12,50 €) |
+| `idempotency_key` | Obligatoire, unique par opération métier, 1 à 200 caractères (espaces de bord retirés) |
+| `amount` | **Entier** en centimes, de 1 à 10 000 000 (`1250` = 12,50 €). `"1250"`, `12.5` et `true` sont refusés |
 | `currency` | `EUR` |
 | `reference.type` | `BOOKING` ou `PARKING_EXIT` |
-| `reference.id` | Identifiant de la réservation ou du stationnement |
+| `reference.id` | Identifiant de la réservation ou du stationnement, 1 à 100 caractères |
 | `source_service` | `booking` ou `access` |
+
+Toute entrée invalide renvoie `422` avec le champ fautif dans `detail`, sans rien créer. Rejouer une clé avec la **même** requête renvoie `200` ; la rejouer avec une requête **différente** (montant, référence ou appelant) renvoie `409` et ne modifie pas la demande d'origine. Chaque réponse porte un en-tête `X-Request-ID` (celui envoyé par l'appelant s'il est valide, sinon généré) retrouvable dans les logs.
 
 Le détail des scénarios, du polling et de la gestion d'erreurs est dans le [guide d'intégration](docs/INTEGRATION_BOOKING_ACCESS.md).
 
@@ -154,7 +157,10 @@ Le détail des scénarios, du polling et de la gestion d'erreurs est dans le [gu
 - [x] Le paiement est asynchrone : `PENDING` pendant 15 s puis `ACCEPTED` ou `REFUSED`.
 - [x] Un refus déclenche un retry automatique (une seule fois).
 - [x] Environ 5 % des paiements simulés sont refusés, pour tester le comportement en cas d'échec.
-- [x] Chaque transaction et chaque changement d'état est journalisé.
+- [x] Chaque transaction et chaque changement d'état est journalisé (JSON, corrélé par `request_id`).
+- [x] Les entrées invalides sont refusées (`422`) et la réutilisation d'une clé avec une requête différente est refusée (`409`).
+- [x] Une panne de la passerelle ne laisse jamais une transaction bloquée en `PENDING`.
+- [x] Le comportement est vérifiable en une commande (`./scripts/verify.sh`) et par la CI.
 - [x] Le service expose un endpoint `/health`.
 - [x] La documentation Swagger/ReDoc est générée automatiquement.
 - [x] Une interface web (`/ui`) permet de créer, rejouer, observer les demandes et leurs transactions.
@@ -187,18 +193,19 @@ Pour brancher Stripe : ajouter `stripe_payment_gateway.py` implémentant `Paymen
 
 - Python 3.12 (Render, `.python-version`), FastAPI, Pydantic v2, pydantic-settings, uuid-utils, uvicorn
 - Architecture hexagonale (domain / application / adapters)
-- Tests : pytest + httpx (24 tests unitaires, flux asynchrone et intégration API) ; UI vérifiée dans Chromium headless (Playwright, hors dépendances du projet)
+- Tests : pytest + httpx, 123 tests (domaine, adapters, flux asynchrone, validation, cas limites, logs, API), couverture de branches ~99,7 % (seuil 90 %) ; UI vérifiée dans Chromium headless (Playwright, hors dépendances du projet)
+- Qualité : ruff (lint, format, complexité cyclomatique ≤ 10), GitHub Actions (`.github/workflows/ci.yml`), `scripts/verify.sh` pour les mêmes contrôles en local
 - Interface : une page HTML/CSS/JS vanilla sans dépendance, servie par FastAPI
-- Logs JSON structurés
+- Logs JSON structurés, `X-Request-ID` de bout en bout (y compris la résolution asynchrone)
 - Déploiement : Render (`render.yaml`, un seul worker, déploiement automatique à chaque push sur `master`)
 
 ## Lancer en local
 
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt   # requirements.txt = runtime seul (ce que Render installe)
 uvicorn app.main:create_app --factory --reload
-pytest -q
+./scripts/verify.sh                   # ruff + format + pytest + couverture (comme la CI)
 ```
 
 Swagger : http://127.0.0.1:8000/docs
@@ -212,6 +219,7 @@ Pour voir un refus suivi du retry : `PAYMENT_FAILURE_RATE=1 PAYMENT_PENDING_DELA
 | `PAYMENT_PENDING_DELAY_SECONDS` | `15` | Durée du statut `PENDING` d'une transaction |
 | `PAYMENT_FAILURE_RATE` | `0.05` | Part de refus simulés par la passerelle |
 | `PAYMENT_MAX_ATTEMPTS` | `2` | Transactions par demande (1 initiale + 1 retry) |
+| `PAYMENT_LOG_LEVEL` | `INFO` | Niveau de logs ; `DEBUG` journalise aussi `/health` et la liste sondée par l'UI |
 | `PAYMENT_API_KEY` | non défini | Clé attendue dans `X-API-Key` ; non défini = contrôle désactivé |
 
 ## Limites connues
@@ -230,6 +238,6 @@ Pour voir un refus suivi du retry : `PAYMENT_FAILURE_RATE=1 PAYMENT_PENDING_DELA
 | API / Déploiement | 3 - Maîtrisé | En ligne sur Render, /health, Swagger/ReDoc, version 0.1.0 |
 | Intégration | 1 - Défini | Contrat d'API et guide fournis à Booking et Access, pas encore d'appel réel validé. Passera à 2 avec un premier appel réel de leur part |
 | Interface | 2 - Fonctionnel | Console `/ui` : objets, états, opérations, journal des actions, clé API. Pas de tests automatisés de l'UI dans le dépôt |
-| Qualité | 2 - Fonctionnel | 24 tests (domaine, flux asynchrone, API, auth). Pas de lint, d'audit des dépendances ni de mesure de complexité |
-| CI/CD | 1 - Défini | Déploiement continu Render sur push, mais pas de pipeline de tests automatisé |
+| Qualité | 3 - Maîtrisé | 123 tests dont entrées invalides, cas limites, concurrence et panne du prestataire (vérifiés par mutation), couverture ~99,7 %, ruff + complexité, logs JSON corrélés, [guide de vérification](docs/VERIFICATION.md). Pas d'audit des dépendances (pip-audit) |
+| CI/CD | 2 - Fonctionnel | Déploiement continu Render sur push et workflow GitHub Actions (lint, format, tests, couverture) ; premier passage à constater après le push, pas de branch protection |
 | Sécurité | 2 - Fonctionnel | `X-API-Key` implémentée, pas encore activée en production. Pas de rate limiting ni de headers de sécurité |
