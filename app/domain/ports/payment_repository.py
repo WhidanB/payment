@@ -19,3 +19,7 @@ class PaymentRepository(ABC):
     @abstractmethod
     async def find_by_idempotency_key(self, idempotency_key: str) -> PaymentRequest | None:
         ...
+
+    @abstractmethod
+    async def list_recent(self, limit: int) -> list[PaymentRequest]:
+        """Most recently created requests first."""

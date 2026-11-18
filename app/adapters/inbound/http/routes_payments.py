@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 
 from app.adapters.inbound.http.schemas import CreatePaymentRequest, PaymentResponse
 from app.adapters.inbound.http.security import require_api_key
@@ -52,6 +52,19 @@ async def create_payment(
     if not result.created:
         response.status_code = status.HTTP_200_OK
     return PaymentResponse.from_domain(result.payment)
+
+
+@router.get(
+    "",
+    response_model=list[PaymentResponse],
+    summary="List recent payment requests",
+    description="Most recent first. Used by the operations UI (/ui) to observe the service.",
+)
+async def list_payments(
+    limit: int = Query(50, ge=1, le=200),
+    service: PaymentService = Depends(service_dep),
+) -> list[PaymentResponse]:
+    return [PaymentResponse.from_domain(p) for p in await service.list_payments(limit)]
 
 
 @router.get(

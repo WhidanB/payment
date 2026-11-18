@@ -90,6 +90,9 @@ class PaymentService:
             raise PaymentNotFound(payment_id)
         return payment
 
+    async def list_payments(self, limit: int = 50) -> list[PaymentRequest]:
+        return await self._repository.list_recent(limit)
+
     # -- asynchronous resolution ---------------------------------------------------
 
     def _schedule_resolution(self, payment_id: str, transaction_id: str) -> None:

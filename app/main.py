@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app import __version__
-from app.adapters.inbound.http import routes_health, routes_payments
+from app.adapters.inbound.http import routes_health, routes_payments, routes_ui
 from app.adapters.outbound.asyncio_resolution_scheduler import AsyncioResolutionScheduler
 from app.container import build_container
 from app.logging_config import configure_logging
@@ -44,5 +44,6 @@ def create_app() -> FastAPI:
 
     app.include_router(routes_health.router)
     app.include_router(routes_payments.router)
+    app.include_router(routes_ui.router)
 
     return app

@@ -55,6 +55,7 @@ class TransactionResponse(BaseModel):
 
 class PaymentResponse(BaseModel):
     payment_id: str
+    idempotency_key: str
     status: PaymentStatus
     amount: int
     currency: str
@@ -68,6 +69,7 @@ class PaymentResponse(BaseModel):
     def from_domain(cls, payment: PaymentRequest) -> "PaymentResponse":
         return cls(
             payment_id=payment.id,
+            idempotency_key=payment.idempotency_key,
             status=payment.status,
             amount=payment.amount,
             currency=payment.currency,

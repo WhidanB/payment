@@ -28,3 +28,7 @@ class InMemoryPaymentRepository(PaymentRepository):
     async def find_by_idempotency_key(self, idempotency_key: str) -> PaymentRequest | None:
         payment_id = self._id_by_key.get(idempotency_key)
         return await self.get(payment_id) if payment_id is not None else None
+
+    async def list_recent(self, limit: int) -> list[PaymentRequest]:
+        newest_first = sorted(self._by_id.values(), key=lambda p: p.created_at, reverse=True)
+        return [copy.deepcopy(p) for p in newest_first[:limit]]

@@ -62,3 +62,10 @@ def test_auth_is_disabled_when_no_key_is_configured(monkeypatch):
     with TestClient(create_app()) as c:
         assert c.post("/payments", json=BODY).status_code == 202
     get_settings.cache_clear()
+
+
+def test_list_requires_key_but_ui_is_open(secured_client):
+    assert secured_client.get("/payments").status_code == 401
+    assert secured_client.get("/payments", headers={"X-API-Key": "secret-123"}).status_code == 200
+    assert secured_client.get("/ui").status_code == 200
+    assert secured_client.get("/health").json()["auth_enabled"] is True

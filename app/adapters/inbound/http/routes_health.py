@@ -18,11 +18,20 @@ class HealthResponse(BaseModel):
     status: str = "ok"
     version: str
     uptime_seconds: float
+    pending_delay_seconds: float
+    max_attempts: int
+    failure_rate: float
+    auth_enabled: bool
 
 
 @router.get("/health", response_model=HealthResponse, summary="Service liveness")
 def health() -> HealthResponse:
+    settings = get_settings()
     return HealthResponse(
-        version=get_settings().version,
+        version=settings.version,
         uptime_seconds=round(time.monotonic() - _STARTED_AT, 3),
+        pending_delay_seconds=settings.pending_delay_seconds,
+        max_attempts=settings.max_attempts,
+        failure_rate=settings.failure_rate,
+        auth_enabled=bool(settings.api_key),
     )

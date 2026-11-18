@@ -75,3 +75,30 @@
 - Persistance Postgres et reprise des transactions PENDING au démarrage (lève aussi la contrainte du worker unique).
 - Adapter Stripe.
 - Optionnel : CI (GitHub Actions), événements PaymentAccepted / PaymentRefused pour éviter le polling.
+
+## 18 novembre
+
+### Fait
+
+- Jalon 8 (UI de démonstration et d'exploitation) : console `/ui`, une page HTML/CSS/JS vanilla servie par le service lui-même (pas de second déploiement, pas de CORS), `/` y redirige.
+- Objets et états : liste des demandes (statut, montant, référence, appelant, tentatives, barre de progression du délai PENDING), compteurs par statut, détail d'une demande avec ses transactions (identifiant, tentative, statut, durée) et JSON brut.
+- Opérations : création d'une demande, rejeu de la même requête (démonstration de l'idempotence : 200, même payment_id), lot de 20 paiements pour observer un refus suivi de son retry.
+- Résultat des actions : journal des appels (code HTTP, résumé, requête et réponse dépliables), rafraîchissement automatique toutes les 2 s, bandeau explicite si la clé API manque (401).
+- Contexte affiché : version, délai PENDING, tentatives max, taux de refus simulé, authentification active ou non, rappel du vocabulaire métier.
+- Backend : nouvelle route `GET /payments?limit=` (liste, protégée par X-API-Key), `idempotency_key` ajouté à la réponse, `/health` expose la configuration utile à l'UI (champs additifs, contrat existant inchangé).
+- Sécurité de l'UI : aucune donnée de l'API injectée en HTML (construction du DOM par `textContent`), clé API gardée en `sessionStorage` uniquement.
+- 24 tests (5 nouveaux : liste, limite invalide, UI servie, redirection, clé API).
+- Vérification dans un vrai navigateur (Chromium headless via Playwright) : création, rejeu (200), passage PENDING → ACCEPTED, lot de 20 avec refus et retry visibles, flux clé API (401 puis accès après saisie), aucune erreur JavaScript.
+
+### Problèmes
+
+- Première version : erreur JavaScript sur le journal du lot de 20 (champ absent dans la réponse agrégée), corrigée et revérifiée.
+- Reconstruire le tableau à chaque rafraîchissement faisait perdre les clics sur une ligne : la liste n'est reconstruite que si les données changent, les barres de progression sont mises à jour sur place.
+- Environnement sans navigateur ni bibliothèques système : Chromium et ses dépendances installés localement sans droits root, hors du dépôt.
+
+### Suite
+
+- Pousser et redéployer, puis vérifier `/ui` sur Render.
+- Activer `PAYMENT_API_KEY` après avoir prévenu Booking et Access, puis tester ensemble.
+- Persistance Postgres et reprise des transactions PENDING au démarrage.
+- Optionnel : tests automatisés de l'UI, forcer un refus à la demande pour la démonstration.

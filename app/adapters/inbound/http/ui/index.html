@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Payment — console</title>
+<style>
+  :root {
+    --bg: #f4f6f8; --card: #fff; --ink: #1c2430; --muted: #5b6676; --line: #d9dfe6;
+    --accent: #1f4e8c; --accent-ink: #fff;
+    --pending: #8a5a00; --pending-bg: #fff3d6;
+    --ok: #146c3a; --ok-bg: #dff5e7;
+    --ko: #a1222b; --ko-bg: #fde3e4;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12171d; --card: #1b222b; --ink: #e6ebf1; --muted: #9aa6b5; --line: #2f3a47;
+      --accent: #6aa5ee; --accent-ink: #0c1118;
+      --pending: #f1c36a; --pending-bg: #3a2d10;
+      --ok: #7fdca3; --ok-bg: #12301f;
+      --ko: #ff9ea4; --ko-bg: #3b1519;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.45 system-ui, sans-serif; background: var(--bg); color: var(--ink); }
+  header { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; justify-content: space-between;
+           padding: 12px 16px; background: var(--card); border-bottom: 1px solid var(--line); }
+  h1 { font-size: 18px; margin: 0; }
+  h2 { font-size: 15px; margin: 0 0 10px; }
+  main { display: grid; gap: 16px; padding: 16px; grid-template-columns: minmax(0, 1fr); max-width: 1400px; margin: 0 auto; }
+  @media (min-width: 1000px) { main { grid-template-columns: 340px minmax(0, 1fr); } .wide { grid-column: 1 / -1; } }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px; min-width: 0; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 8px 0 3px; }
+  input, select, button { font: inherit; color: inherit; }
+  input, select { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+  button { padding: 7px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  button:focus-visible, input:focus-visible, select:focus-visible, tr:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .row > * { flex: 1 1 auto; }
+  .inline { display: flex; gap: 6px; } .inline input { flex: 1; } .inline button { flex: 0 0 auto; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .mono { font-family: var(--mono); font-size: 12.5px; word-break: break-all; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 12.5px; color: var(--muted); }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 12.5px; font-weight: 600; letter-spacing: .02em; }
+  .PENDING { background: var(--pending-bg); color: var(--pending); }
+  .ACCEPTED { background: var(--ok-bg); color: var(--ok); }
+  .REFUSED { background: var(--ko-bg); color: var(--ko); }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+  .stat { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+  .stat b { display: block; font-size: 20px; }
+  .tablewrap { overflow-x: auto; max-height: 340px; overflow-y: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { position: sticky; top: 0; background: var(--card); color: var(--muted); font-weight: 600; }
+  tbody tr { cursor: pointer; } tbody tr:hover, tr.sel { background: var(--bg); }
+  tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+  .bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; min-width: 60px; }
+  .bar > i { display: block; height: 100%; background: var(--pending); }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0 0 12px; }
+  dt { color: var(--muted); } dd { margin: 0; min-width: 0; }
+  ol.tx { list-style: none; padding: 0; margin: 0 0 12px; display: grid; gap: 8px; }
+  ol.tx li { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+  pre { margin: 0; padding: 8px; background: var(--bg); border-radius: 6px; overflow: auto; font: 12px/1.4 var(--mono); max-height: 260px; }
+  .log { max-height: 300px; overflow: auto; display: grid; gap: 6px; }
+  .log details { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+  .log summary { cursor: pointer; display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; }
+  .code { font-family: var(--mono); font-weight: 700; }
+  .c2 { color: var(--ok); } .c4 { color: var(--pending); } .c5 { color: var(--ko); }
+  .banner { padding: 8px 12px; border-radius: 6px; margin-bottom: 10px; background: var(--ko-bg); color: var(--ko); }
+  .legend { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .legend p { margin: 0; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Payment — console de démonstration</h1>
+  <div id="health" class="chips" aria-live="polite"><span class="chip">connexion…</span></div>
+  <div class="inline" style="min-width:260px; max-width:360px; flex:1">
+    <input id="apikey" type="password" placeholder="Clé API (X-API-Key)" autocomplete="off" aria-label="Clé API">
+    <button id="savekey" type="button">Utiliser</button>
+  </div>
+</header>
+
+<main>
+  <section aria-labelledby="h-new">
+    <h2 id="h-new">Nouvelle demande de paiement</h2>
+    <form id="form" autocomplete="off">
+      <label for="idk">Clé d'idempotence</label>
+      <div class="inline"><input id="idk" required><button type="button" id="newkey" title="Générer une nouvelle clé">Nouvelle</button></div>
+      <label for="amount">Montant (centimes)</label>
+      <input id="amount" type="number" min="1" step="1" value="1250" required>
+      <div class="muted" id="amountPreview"></div>
+      <label for="rtype">Référence — type</label>
+      <select id="rtype"><option>BOOKING</option><option>PARKING_EXIT</option></select>
+      <label for="rid">Référence — identifiant</label>
+      <input id="rid" required value="resa_demo_1">
+      <label for="src">Service appelant</label>
+      <select id="src"><option value="booking">booking</option><option value="access">access</option></select>
+      <div class="row">
+        <button class="primary" type="submit">Créer le paiement</button>
+        <button type="button" id="replay" disabled title="Renvoie exactement la même requête (même clé)">Rejouer la même requête</button>
+      </div>
+      <div class="row">
+        <button type="button" id="batch">Générer 20 paiements</button>
+      </div>
+      <p class="muted">Rejouer montre l'idempotence : même clé → <span class="mono">200</span> et même <span class="mono">payment_id</span>, aucune nouvelle transaction. Le lot de 20 sert à observer un refus et le retry automatique.</p>
+    </form>
+  </section>
+
+  <section aria-labelledby="h-list">
+    <h2 id="h-list">Demandes de paiement</h2>
+    <div id="banner" class="banner" role="alert" hidden></div>
+    <div class="stats" id="stats"></div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Créée</th><th>Statut</th><th>Montant</th><th>Référence</th><th>Source</th><th>Tentatives</th><th>Progression</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <p class="muted" id="empty" hidden>Aucune demande pour l'instant. Créez-en une à gauche.</p>
+  </section>
+
+  <section aria-labelledby="h-detail">
+    <h2 id="h-detail">Détail</h2>
+    <div id="detail"><p class="muted">Sélectionnez une demande dans la liste.</p></div>
+  </section>
+
+  <section aria-labelledby="h-log">
+    <h2 id="h-log">Journal des actions</h2>
+    <div class="log" id="log"><p class="muted">Les appels effectués depuis cette page apparaissent ici.</p></div>
+  </section>
+
+  <section class="wide" aria-labelledby="h-help">
+    <h2 id="h-help">Comprendre le service</h2>
+    <div class="legend">
+      <p><b>Demande de paiement</b><br>Identifiée par la clé d'idempotence de l'appelant (Booking ou Access). Porte le statut final et regroupe 1 à N transactions.</p>
+      <p><b>Transaction</b><br>Une tentative d'encaissement (UUID v7). Reste <span class="badge PENDING">PENDING</span> pendant le délai d'attente, puis <span class="badge ACCEPTED">ACCEPTED</span> ou <span class="badge REFUSED">REFUSED</span>.</p>
+      <p><b>Retry automatique</b><br>Un refus ouvre une seule transaction supplémentaire. Si elle échoue aussi, la demande passe à <span class="badge REFUSED">REFUSED</span>.</p>
+      <p><b>Opérations</b><br><span class="mono">POST /payments</span> crée (202) ou rejoue (200) ; <span class="mono">GET /payments/{id}</span> donne le résultat ; la page interroge la liste toutes les 2 s. API complète : <a href="/docs">/docs</a>.</p>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const state = { key: "", payments: [], selected: null, last: null, cfg: null, logs: [] };
+
+  try { state.key = sessionStorage.getItem("payment_api_key") || ""; } catch (_) {}
+  $("apikey").value = state.key;
+
+  // ---- DOM helper: never inject API data as HTML ----
+  function el(tag, props, ...kids) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(props || {})) {
+      if (k === "class") n.className = v; else if (k === "text") n.textContent = v; else n.setAttribute(k, v);
+    }
+    for (const kid of kids) if (kid != null) n.append(kid);
+    return n;
+  }
+  const badge = (s) => el("span", { class: "badge " + s, text: s });
+  const short = (id) => id.slice(0, 8) + "…" + id.slice(-4);
+  const eur = (c) => (c / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
+  const hhmmss = (iso) => new Date(iso).toLocaleTimeString("fr-FR");
+  const uid = () => "ui-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
+
+  // ---- API ----
+  async function api(method, path, body, { quiet = false } = {}) {
+    const headers = { "Accept": "application/json" };
+    if (body) headers["Content-Type"] = "application/json";
+    if (state.key) headers["X-API-Key"] = state.key;
+    const t0 = performance.now();
+    let res, data = null, netErr = null;
+    try {
+      res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+      try { data = await res.json(); } catch (_) {}
+    } catch (e) { netErr = e; }
+    const out = { status: res ? res.status : 0, ok: !!res && res.ok, data, ms: Math.round(performance.now() - t0), netErr };
+    if (!quiet) addLog(method, path, body, out);
+    return out;
+  }
+
+  function describe(method, out) {
+    if (out.netErr) return "Service injoignable (réveil de l'instance en cours ?)";
+    if (out.status === 401) return "Clé API absente ou invalide";
+    if (out.status === 422) return "Requête invalide (voir détail)";
+    if (out.status === 404) return "Introuvable";
+    if (method === "POST" && out.status === 202) return "Demande créée → " + out.data.status + " · " + short(out.data.payment_id);
+    if (method === "POST" && out.status === 200) return "Rejeu idempotent : même demande " + short(out.data.payment_id) + ", pas de nouvelle transaction (" + out.data.transactions.length + ")";
+    if (out.ok) return "OK";
+    return "Erreur serveur";
+  }
+
+  function addLog(method, path, body, out, text) {
+    state.logs.unshift({ at: new Date().toISOString(), method, path, body, out, text: text || describe(method, out) });
+    state.logs.length = Math.min(state.logs.length, 40);
+    renderLog();
+  }
+
+  // ---- rendering ----
+  function renderHealth(h) {
+    const box = $("health"); box.replaceChildren();
+    if (!h) { box.append(el("span", { class: "chip", text: "service injoignable" })); return; }
+    const chips = [
+      "v" + h.version, "en ligne depuis " + Math.round(h.uptime_seconds) + " s",
+      "PENDING " + h.pending_delay_seconds + " s", "max " + h.max_attempts + " tentatives",
+      "refus simulés " + Math.round(h.failure_rate * 100) + " %",
+      h.auth_enabled ? "authentification active" : "authentification désactivée",
+    ];
+    for (const c of chips) box.append(el("span", { class: "chip", text: c }));
+  }
+
+  function renderStats() {
+    const c = { total: state.payments.length, PENDING: 0, ACCEPTED: 0, REFUSED: 0 };
+    for (const p of state.payments) c[p.status]++;
+    const box = $("stats"); box.replaceChildren();
+    for (const [label, key] of [["Total", "total"], ["PENDING", "PENDING"], ["ACCEPTED", "ACCEPTED"], ["REFUSED", "REFUSED"]]) {
+      box.append(el("div", { class: "stat" }, el("span", { class: "muted", text: label }), el("b", { text: String(c[key]) })));
+    }
+  }
+
+  function progress(p) {
+    const tx = p.transactions[p.transactions.length - 1];
+    if (!tx || tx.status !== "PENDING" || !state.cfg) return el("span", { class: "muted", text: "—" });
+    const bar = el("div", { class: "bar", role: "progressbar", "aria-label": "Délai PENDING écoulé", "aria-valuemin": "0", "aria-valuemax": "100", "data-created": tx.created_at });
+    bar.append(el("i"));
+    paintBar(bar);
+    return bar;
+  }
+  function paintBar(bar) {
+    const frac = Math.min(1, Math.max(0, (Date.now() - new Date(bar.dataset.created).getTime()) / (state.cfg.pending_delay_seconds * 1000)));
+    bar.firstChild.style.width = Math.round(frac * 100) + "%";
+    bar.setAttribute("aria-valuenow", String(Math.round(frac * 100)));
+  }
+  function tickBars() { if (state.cfg) document.querySelectorAll(".bar[data-created]").forEach(paintBar); }
+
+  let rowsSig = "", detailSig = "";
+  function renderRows() {
+    const sig = !!state.cfg + "|" + state.selected + "|" + state.payments.map((p) => p.payment_id + p.status + p.transactions.map((t) => t.status).join(",")).join(";");
+    if (sig === rowsSig) return;
+    rowsSig = sig;
+    const body = $("rows"); body.replaceChildren();
+    $("empty").hidden = state.payments.length > 0;
+    for (const p of state.payments) {
+      const tr = el("tr", { tabindex: "0", "data-id": p.payment_id, class: p.payment_id === state.selected ? "sel" : "" },
+        el("td", { text: hhmmss(p.created_at) }), el("td", {}, badge(p.status)), el("td", { text: eur(p.amount) }),
+        el("td", { text: p.reference.type + " " + p.reference.id }), el("td", { text: p.source_service }),
+        el("td", { text: String(p.transactions.length) }), el("td", {}, progress(p)));
+      const pick = () => { state.selected = p.payment_id; renderRows(); renderDetail(); };
+      tr.addEventListener("mousedown", pick);
+      tr.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } });
+      body.append(tr);
+    }
+  }
+
+  function renderDetail() {
+    const p = state.payments.find((x) => x.payment_id === state.selected);
+    const sig = JSON.stringify(p || null);
+    if (sig === detailSig) return;
+    detailSig = sig;
+    const box = $("detail"); box.replaceChildren();
+    if (!p) { box.append(el("p", { class: "muted", text: "Sélectionnez une demande dans la liste." })); return; }
+    const dl = el("dl");
+    const row = (k, v) => { dl.append(el("dt", { text: k }), el("dd", {}, v)); };
+    row("Statut", badge(p.status));
+    row("payment_id", el("span", { class: "mono", text: p.payment_id }));
+    row("Clé d'idempotence", el("span", { class: "mono", text: p.idempotency_key }));
+    row("Montant", el("span", { text: eur(p.amount) + " (" + p.amount + " centimes, " + p.currency + ")" }));
+    row("Référence", el("span", { text: p.reference.type + " · " + p.reference.id }));
+    row("Appelant", el("span", { text: p.source_service }));
+    row("Créée / mise à jour", el("span", { text: hhmmss(p.created_at) + " / " + hhmmss(p.updated_at) }));
+    box.append(dl);
+
+    box.append(el("h2", { text: "Transactions (" + p.transactions.length + ")" }));
+    const ol = el("ol", { class: "tx" });
+    for (const t of p.transactions) {
+      const dur = t.resolved_at ? ((new Date(t.resolved_at) - new Date(t.created_at)) / 1000).toFixed(1) + " s" : "en cours";
+      ol.append(el("li", {},
+        el("div", {}, el("b", { text: "Tentative " + t.attempt + " " }), badge(t.status), el("span", { class: "muted", text: "  durée : " + dur })),
+        el("div", { class: "mono", text: t.transaction_id }),
+        el("div", { class: "muted", text: "ouverte " + hhmmss(t.created_at) + (t.resolved_at ? " · résolue " + hhmmss(t.resolved_at) : "") })));
+    }
+    box.append(ol);
+    box.append(el("h2", { text: "Réponse JSON brute" }), el("pre", { text: JSON.stringify(p, null, 2) }));
+  }
+
+  function renderLog() {
+    const box = $("log"); box.replaceChildren();
+    if (!state.logs.length) { box.append(el("p", { class: "muted", text: "Les appels effectués depuis cette page apparaissent ici." })); return; }
+    for (const l of state.logs) {
+      const cls = "code c" + (String(l.out.status)[0] || "5");
+      const d = el("details", {},
+        el("summary", {}, el("span", { class: cls, text: l.out.status || "ERR" }), el("span", { class: "mono", text: l.method + " " + l.path }),
+          el("span", { text: l.text }), el("span", { class: "muted", text: hhmmss(l.at) + " · " + l.out.ms + " ms" })));
+      d.append(el("pre", { text: (l.body ? "→ " + JSON.stringify(l.body, null, 2) + "\n\n" : "") + "← " + (l.out.data ? JSON.stringify(l.out.data, null, 2) : String(l.out.netErr || "(vide)")) }));
+      box.append(d);
+    }
+  }
+
+  function showBanner(msg) { const b = $("banner"); b.hidden = !msg; b.textContent = msg || ""; }
+
+  // ---- polling ----
+  async function refresh() {
+    const out = await api("GET", "/payments?limit=100", null, { quiet: true });
+    if (out.status === 401) { showBanner("Clé API requise : saisissez-la en haut à droite, puis « Utiliser »."); return; }
+    if (!out.ok) { showBanner("Impossible de lire les paiements (HTTP " + (out.status || "réseau") + ")."); return; }
+    showBanner("");
+    state.payments = out.data;
+    renderStats(); renderRows(); renderDetail();
+  }
+  async function refreshHealth() {
+    const out = await api("GET", "/health", null, { quiet: true });
+    state.cfg = out.ok ? out.data : null;
+    renderHealth(state.cfg);
+  }
+
+  // ---- actions ----
+  function currentBody() {
+    return {
+      idempotency_key: $("idk").value.trim(), amount: parseInt($("amount").value, 10), currency: "EUR",
+      reference: { type: $("rtype").value, id: $("rid").value.trim() }, source_service: $("src").value,
+    };
+  }
+  function updatePreview() {
+    const n = parseInt($("amount").value, 10);
+    $("amountPreview").textContent = Number.isFinite(n) && n > 0 ? "= " + eur(n) : "";
+  }
+
+  async function send(body) {
+    state.last = body; $("replay").disabled = false;
+    const out = await api("POST", "/payments", body);
+    if (out.data && out.data.payment_id) { state.selected = out.data.payment_id; }
+    await refresh();
+    return out;
+  }
+
+  $("form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    await send(currentBody());
+    $("idk").value = uid();
+  });
+  $("replay").addEventListener("click", () => state.last && send(state.last));
+  $("newkey").addEventListener("click", () => { $("idk").value = uid(); });
+  $("amount").addEventListener("input", updatePreview);
+  $("src").addEventListener("change", () => { $("rtype").value = $("src").value === "access" ? "PARKING_EXIT" : "BOOKING"; });
+  $("batch").addEventListener("click", async () => {
+    const btn = $("batch"); btn.disabled = true;
+    const bodies = Array.from({ length: 20 }, (_, i) => {
+      const acc = i % 2 === 1;
+      return { idempotency_key: uid() + "-" + i, amount: 100 + Math.floor(Math.random() * 4900), currency: "EUR",
+               reference: { type: acc ? "PARKING_EXIT" : "BOOKING", id: (acc ? "stay_" : "resa_") + (1000 + i) }, source_service: acc ? "access" : "booking" };
+    });
+    const outs = await Promise.all(bodies.map((b) => api("POST", "/payments", b, { quiet: true })));
+    const created = outs.filter((o) => o.status === 202).length;
+    addLog("POST", "/payments ×20", null, { status: created === 20 ? 202 : (outs.find((o) => !o.ok) || {}).status || 0, ok: created === 20, ms: Math.max(...outs.map((o) => o.ms)),
+      data: { demandes_creees: created, echecs: 20 - created }, netErr: null },
+      created + " demandes créées sur 20 — suivez leur résolution dans la liste");
+    btn.disabled = false; await refresh();
+  });
+  $("savekey").addEventListener("click", () => {
+    state.key = $("apikey").value.trim();
+    try { sessionStorage.setItem("payment_api_key", state.key); } catch (_) {}
+    refresh();
+  });
+
+  $("idk").value = uid(); updatePreview();
+  refreshHealth(); refresh();
+  setInterval(refresh, 2000);
+  setInterval(refreshHealth, 10000);
+  setInterval(tickBars, 500);
+})();
+</script>
+</body>
+</html>

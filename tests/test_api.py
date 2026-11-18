@@ -68,3 +68,35 @@ def test_validation_error(client):
 
 def test_unknown_payment_is_404(client):
     assert client.get("/payments/does-not-exist").status_code == 404
+
+
+def test_list_payments_newest_first(client):
+    first = client.post("/payments", json={**BODY, "idempotency_key": "list-1"}).json()
+    second = client.post("/payments", json={**BODY, "idempotency_key": "list-2"}).json()
+
+    listed = client.get("/payments", params={"limit": 10}).json()
+
+    assert [p["payment_id"] for p in listed[:2]] == [second["payment_id"], first["payment_id"]]
+    assert listed[0]["idempotency_key"] == "list-2"
+
+
+def test_list_payments_validates_limit(client):
+    assert client.get("/payments", params={"limit": 0}).status_code == 422
+
+
+def test_ui_is_served_and_root_redirects(client):
+    page = client.get("/ui")
+    assert page.status_code == 200
+    assert "text/html" in page.headers["content-type"]
+    assert "Payment" in page.text
+
+    root = client.get("/", follow_redirects=False)
+    assert root.status_code in (302, 307)
+    assert root.headers["location"] == "/ui"
+
+
+def test_health_exposes_ui_config(client):
+    body = client.get("/health").json()
+    assert body["pending_delay_seconds"] == 0
+    assert body["max_attempts"] == 2
+    assert body["auth_enabled"] is False

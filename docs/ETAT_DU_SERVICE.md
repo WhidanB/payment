@@ -151,10 +151,22 @@ Réponse :
 
 Même schéma, tenu à jour (statut agrégé + toutes les transactions). `404` si inconnu.
 
+### `GET /payments?limit=50` → `200 OK`
+
+Liste des demandes récentes (plus récentes d'abord, `limit` entre 1 et 200), même schéma que
+`GET /payments/{id}`. Protégée par `X-API-Key`. Sert à la console `/ui`.
+
+### `GET /ui` (et `/`)
+
+Console de démonstration et d'exploitation (page statique servie par le service, publique) :
+liste et détail des demandes et transactions, création, rejeu idempotent, lot de 20 paiements,
+journal des actions. `/` redirige vers `/ui`.
+
 ### `GET /health` → `200 OK`
 
 ```json
-{ "status": "ok", "version": "0.1.0", "uptime_seconds": 408.798 }
+{ "status": "ok", "version": "0.1.0", "uptime_seconds": 408.798,
+  "pending_delay_seconds": 15.0, "max_attempts": 2, "failure_rate": 0.05, "auth_enabled": false }
 ```
 
 ### Documentation

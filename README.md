@@ -15,6 +15,7 @@ Payment ne calcule pas les prix : il reçoit un montant et une référence de ce
 | Ressource | URL |
 |---|---|
 | Service déployé | https://payment-xp8n.onrender.com |
+| Console de démonstration (UI) | https://payment-xp8n.onrender.com/ui |
 | Swagger UI | https://payment-xp8n.onrender.com/docs |
 | ReDoc | https://payment-xp8n.onrender.com/redoc |
 | OpenAPI JSON | https://payment-xp8n.onrender.com/openapi.json |
@@ -55,6 +56,16 @@ Aucun flux asynchrone (broker) n'est utilisé pour l'instant : le résultat est 
 - Après un refus, le service ouvre automatiquement **une seule** transaction de retry (de nouveau `PENDING` 15 s). Si elle échoue aussi, la demande est `REFUSED`.
 - Le statut final est donc disponible au bout de ~15 s, ou ~30 s en cas de retry.
 - Chaque changement d'état est journalisé en une ligne JSON.
+
+## Interface de démonstration
+
+La console `/ui` (servie par le service lui-même, `/` y redirige) permet de manipuler et d'observer le service sans outil externe :
+
+- **Objets et états** : liste des demandes de paiement (statut, montant, référence, appelant, nombre de tentatives, progression du délai `PENDING`), compteurs par statut, détail d'une demande avec chacune de ses transactions (identifiant, tentative, statut, durée) et la réponse JSON brute.
+- **Opérations** : créer une demande (clé d'idempotence, montant en centimes, référence, service appelant), **rejouer la même requête** pour montrer l'idempotence (`200`, même `payment_id`, pas de nouvelle transaction), générer un lot de 20 paiements pour observer un refus suivi de son retry.
+- **Résultat des actions** : journal des appels effectués depuis la page (code HTTP, résumé, requête et réponse dépliables) et rafraîchissement automatique toutes les 2 s.
+- **Contexte** : version, délai `PENDING`, nombre max de tentatives, taux de refus simulé, authentification active ou non, et rappel du vocabulaire métier.
+- La page est publique ; si l'authentification est active, saisir la clé API en haut à droite (gardée uniquement pour l'onglet, dans `sessionStorage`).
 
 ## Tester le service
 
@@ -100,7 +111,9 @@ L'en-tête `X-API-Key` n'est exigé qu'une fois la clé activée sur le serveur 
 |---|---|---|
 | `POST /payments` | Crée une demande et sa première transaction | `202` (créée), `200` (rejeu idempotent), `401`, `422` |
 | `GET /payments/{payment_id}` | Statut agrégé et toutes les transactions | `200`, `401`, `404` |
-| `GET /health` | Santé du service | `200` |
+| `GET /payments?limit=50` | Demandes récentes, les plus récentes d'abord (utilisé par l'UI, 1 à 200) | `200`, `401`, `422` |
+| `GET /health` | Santé du service, avec la configuration utile à l'UI | `200` |
+| `GET /ui` | Console de démonstration | `200` |
 
 Corps de `POST /payments` :
 
@@ -120,7 +133,8 @@ Le détail des scénarios, du polling et de la gestion d'erreurs est dans le [gu
 | Action | Protection |
 |---|---|
 | `POST /payments`, `GET /payments/{id}` | En-tête `X-API-Key` (401 si absent ou faux) |
-| `/health`, `/docs`, `/redoc`, `/openapi.json` | Publics |
+| `GET /payments` (liste) | En-tête `X-API-Key` |
+| `/health`, `/ui`, `/docs`, `/redoc`, `/openapi.json` | Publics |
 
 | Mesure | Détail |
 |---|---|
@@ -143,6 +157,8 @@ Le détail des scénarios, du polling et de la gestion d'erreurs est dans le [gu
 - [x] Chaque transaction et chaque changement d'état est journalisé.
 - [x] Le service expose un endpoint `/health`.
 - [x] La documentation Swagger/ReDoc est générée automatiquement.
+- [x] Une interface web (`/ui`) permet de créer, rejouer, observer les demandes et leurs transactions.
+- [x] Je peux lister les demandes récentes (`GET /payments`).
 - [x] Les routes de paiement sont protégées par `X-API-Key` (activation côté serveur à coordonner).
 - [x] Le service est déployé sur Render.
 - [ ] Activation de la clé API en production.
@@ -171,7 +187,8 @@ Pour brancher Stripe : ajouter `stripe_payment_gateway.py` implémentant `Paymen
 
 - Python 3.12 (Render, `.python-version`), FastAPI, Pydantic v2, pydantic-settings, uuid-utils, uvicorn
 - Architecture hexagonale (domain / application / adapters)
-- Tests : pytest + httpx (19 tests unitaires, flux asynchrone et intégration API)
+- Tests : pytest + httpx (24 tests unitaires, flux asynchrone et intégration API) ; UI vérifiée dans Chromium headless (Playwright, hors dépendances du projet)
+- Interface : une page HTML/CSS/JS vanilla sans dépendance, servie par FastAPI
 - Logs JSON structurés
 - Déploiement : Render (`render.yaml`, un seul worker, déploiement automatique à chaque push sur `master`)
 
@@ -212,6 +229,7 @@ Pour voir un refus suivi du retry : `PAYMENT_FAILURE_RATE=1 PAYMENT_PENDING_DELA
 | Métier | 3 - Maîtrisé | Responsabilité, objets et règles clairs : idempotence, cycle de vie asynchrone, retry unique |
 | API / Déploiement | 3 - Maîtrisé | En ligne sur Render, /health, Swagger/ReDoc, version 0.1.0 |
 | Intégration | 1 - Défini | Contrat d'API et guide fournis à Booking et Access, pas encore d'appel réel validé. Passera à 2 avec un premier appel réel de leur part |
-| Qualité | 2 - Fonctionnel | 19 tests (domaine, flux asynchrone, API, auth). Pas de lint, d'audit des dépendances ni de mesure de complexité |
+| Interface | 2 - Fonctionnel | Console `/ui` : objets, états, opérations, journal des actions, clé API. Pas de tests automatisés de l'UI dans le dépôt |
+| Qualité | 2 - Fonctionnel | 24 tests (domaine, flux asynchrone, API, auth). Pas de lint, d'audit des dépendances ni de mesure de complexité |
 | CI/CD | 1 - Défini | Déploiement continu Render sur push, mais pas de pipeline de tests automatisé |
 | Sécurité | 2 - Fonctionnel | `X-API-Key` implémentée, pas encore activée en production. Pas de rate limiting ni de headers de sécurité |
