@@ -8,6 +8,8 @@ lets a key be rolled out without breaking existing callers until it's set.
 
 from __future__ import annotations
 
+import hmac
+
 from fastapi import HTTPException, Request, Security, status
 from fastapi.security import APIKeyHeader
 
@@ -21,7 +23,9 @@ async def require_api_key(request: Request, provided_key: str | None = Security(
     expected = container.settings.api_key
     if not expected:
         return
-    if provided_key != expected:
+    if provided_key is None or not hmac.compare_digest(
+        provided_key.encode("utf-8"), expected.encode("utf-8")
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="missing or invalid X-API-Key",

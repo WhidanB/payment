@@ -20,6 +20,10 @@ from app.domain.model.transaction import Transaction
 
 _ALLOWED_CURRENCIES = {"EUR"}
 
+MAX_AMOUNT_CENTS = 10_000_000  # 100 000 EUR: sanity cap, far above any parking fee
+MAX_IDEMPOTENCY_KEY_LENGTH = 200
+MAX_REFERENCE_ID_LENGTH = 100
+
 
 @dataclass(frozen=True)
 class PaymentReference:
@@ -56,8 +60,20 @@ class PaymentRequest:
     ) -> "PaymentRequest":
         if not idempotency_key or not idempotency_key.strip():
             raise InvalidPaymentRequest("idempotency_key is required")
+        if len(idempotency_key) > MAX_IDEMPOTENCY_KEY_LENGTH:
+            raise InvalidPaymentRequest(
+                f"idempotency_key must be at most {MAX_IDEMPOTENCY_KEY_LENGTH} characters"
+            )
         if amount <= 0:
             raise InvalidPaymentRequest("amount must be a positive number of cents")
+        if amount > MAX_AMOUNT_CENTS:
+            raise InvalidPaymentRequest(f"amount must be at most {MAX_AMOUNT_CENTS} cents")
+        if not reference.id or not reference.id.strip():
+            raise InvalidPaymentRequest("reference.id is required")
+        if len(reference.id) > MAX_REFERENCE_ID_LENGTH:
+            raise InvalidPaymentRequest(
+                f"reference.id must be at most {MAX_REFERENCE_ID_LENGTH} characters"
+            )
         if currency not in _ALLOWED_CURRENCIES:
             raise InvalidPaymentRequest(f"unsupported currency: {currency}")
         if max_attempts < 1:
@@ -70,6 +86,23 @@ class PaymentRequest:
             reference=reference,
             source_service=source_service,
             max_attempts=max_attempts,
+        )
+
+    def is_same_request(
+        self,
+        *,
+        amount: int,
+        currency: str,
+        reference: PaymentReference,
+        source_service: SourceService,
+    ) -> bool:
+        """True when a replayed idempotency key carries the same business payload."""
+
+        return (
+            self.amount == amount
+            and self.currency == currency
+            and self.reference == reference
+            and self.source_service == source_service
         )
 
     # -- transactions -----------------------------------------------------------

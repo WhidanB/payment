@@ -9,9 +9,14 @@ from app.adapters.inbound.http.security import require_api_key
 from app.application.errors import PaymentNotFound
 from app.application.payment_service import PaymentService, RequestPaymentCommand
 from app.container import Container
-from app.domain.model.errors import InvalidPaymentRequest
+from app.domain.model.errors import IdempotencyConflict, InvalidPaymentRequest
 
-router = APIRouter(prefix="/payments", tags=["payments"], dependencies=[Depends(require_api_key)])
+router = APIRouter(
+    prefix="/payments",
+    tags=["payments"],
+    dependencies=[Depends(require_api_key)],
+    responses={401: {"description": "Missing or invalid X-API-Key"}},
+)
 
 
 def service_dep(request: Request) -> PaymentService:
@@ -25,6 +30,11 @@ def service_dep(request: Request) -> PaymentService:
     "",
     response_model=PaymentResponse,
     status_code=status.HTTP_202_ACCEPTED,
+    responses={
+        200: {"description": "Idempotent replay: the existing request is returned unchanged"},
+        409: {"description": "idempotency_key already used with a different payload"},
+        422: {"description": "Invalid body (amount, currency, reference, source_service, key)"},
+    },
     summary="Request a payment",
     description=(
         "Opens a payment request and its first transaction (PENDING). The transaction "
@@ -47,7 +57,11 @@ async def create_payment(
     try:
         result = await service.request_payment(command)
     except InvalidPaymentRequest as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    except IdempotencyConflict as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
     if not result.created:
         response.status_code = status.HTTP_200_OK
@@ -80,5 +94,5 @@ async def get_payment(
     try:
         payment = await service.get_payment(payment_id)
     except PaymentNotFound as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return PaymentResponse.from_domain(payment)

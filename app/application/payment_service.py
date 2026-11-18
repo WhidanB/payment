@@ -14,10 +14,11 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 from app.application.errors import PaymentNotFound
-from app.domain.model.payment import PaymentReference, PaymentRequest
 from app.domain.model.enums import SourceService
+from app.domain.model.errors import IdempotencyConflict
+from app.domain.model.payment import PaymentReference, PaymentRequest
 from app.domain.model.transaction import Transaction
-from app.domain.ports.payment_gateway import PaymentGateway
+from app.domain.ports.payment_gateway import GatewayResult, PaymentGateway
 from app.domain.ports.payment_repository import PaymentRepository
 from app.domain.ports.resolution_scheduler import ResolutionScheduler
 
@@ -62,6 +63,17 @@ class PaymentService:
         async with self._key_locks[command.idempotency_key]:
             existing = await self._repository.find_by_idempotency_key(command.idempotency_key)
             if existing is not None:
+                if not existing.is_same_request(
+                    amount=command.amount,
+                    currency=command.currency,
+                    reference=command.reference,
+                    source_service=command.source_service,
+                ):
+                    logger.warning(
+                        "payment.idempotency_conflict",
+                        extra=_fields(existing, detail="same key, different payload"),
+                    )
+                    raise IdempotencyConflict(command.idempotency_key)
                 logger.info(
                     "payment.idempotent_hit",
                     extra=_fields(existing, transaction=existing.current_transaction),
@@ -109,11 +121,17 @@ class PaymentService:
         if transaction is None or not transaction.is_pending:
             return
 
-        result = await self._gateway.authorize(
-            amount=payment.amount,
-            currency=payment.currency,
-            reference=payment.reference,
-        )
+        try:
+            result = await self._gateway.authorize(
+                amount=payment.amount,
+                currency=payment.currency,
+                reference=payment.reference,
+            )
+        except Exception:  # noqa: BLE001 - a provider outage must not strand the transaction
+            logger.exception(
+                "gateway.error", extra=_fields(payment, transaction=transaction)
+            )
+            result = GatewayResult(approved=False, detail="gateway_error")
 
         if result.approved:
             transaction.accept()

@@ -4,12 +4,6 @@ from __future__ import annotations
 
 import time
 
-import pytest
-from fastapi.testclient import TestClient
-
-from app.config import get_settings
-from app.main import create_app
-
 BODY = {
     "idempotency_key": "booking-api-1",
     "amount": 1250,
@@ -17,16 +11,6 @@ BODY = {
     "reference": {"type": "BOOKING", "id": "resa_1"},
     "source_service": "booking",
 }
-
-
-@pytest.fixture
-def client(monkeypatch):
-    monkeypatch.setenv("PAYMENT_PENDING_DELAY_SECONDS", "0")
-    monkeypatch.setenv("PAYMENT_FAILURE_RATE", "0")
-    get_settings.cache_clear()
-    with TestClient(create_app()) as c:
-        yield c
-    get_settings.cache_clear()
 
 
 def _poll_until_settled(client, payment_id, attempts=50):
