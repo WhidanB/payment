@@ -13,7 +13,7 @@ Microservice du projet fil rouge « parking ». Il reçoit des demandes de paiem
 | **Docs API** | https://payment-xp8n.onrender.com/docs (Swagger) · `/redoc` · `/openapi.json` |
 | **Santé** | https://payment-xp8n.onrender.com/health |
 | **Stack** | Python 3.12 · FastAPI · uvicorn · architecture hexagonale |
-| **État** | ✅ déployé et vérifié en production · passerelle **simulée** (5 % de refus) · persistance **en mémoire** |
+| **État** | ✅ déployé et vérifié en production · passerelle **simulée** (5 % de refus) · persistance **PostgreSQL (Neon)** |
 
 ---
 
@@ -257,7 +257,7 @@ app/
 │   └── errors.py
 ├── adapters/
 │   ├── inbound/http/   routes_payments · routes_health · schemas (DTO Pydantic)
-│   └── outbound/       in_memory_payment_repository · simulated_payment_gateway · asyncio_resolution_scheduler
+│   └── outbound/       postgres_payment_repository · in_memory_payment_repository · simulated_payment_gateway · asyncio_resolution_scheduler
 ├── config.py         Settings (variables d'env, préfixe PAYMENT_)
 ├── container.py       composition root — point de câblage des adapters
 ├── logging_config.py  formatter JSON
@@ -269,7 +269,7 @@ app/
 | Port | Adapter actuel | Adapter cible |
 |---|---|---|
 | `PaymentGateway` | `SimulatedPaymentGateway` | `StripePaymentGateway` |
-| `PaymentRepository` | `InMemoryPaymentRepository` | adapter SQL / Postgres |
+| `PaymentRepository` | `PostgresPaymentRepository` (Neon), `InMemoryPaymentRepository` sans base | — |
 | `ResolutionScheduler` | `AsyncioResolutionScheduler` | worker persistant / file de tâches |
 
 ---
@@ -289,7 +289,7 @@ app/
 ## 7. Tests et vérification
 
 `./scripts/verify.sh` (identique à la CI) : `ruff check` (dont complexité cyclomatique ≤ 10), `ruff format --check`,
-`pytest --cov` — **131 tests**, couverture de branches ~99,7 % (seuil 90 %), < 3 s. Tests déterministes :
+`pytest --cov` — **163 tests**, couverture de branches ~99,7 % (seuil 90 %), < 3 s. Tests déterministes :
 passerelle forcée, résolution pilotée à la main, aucun `sleep`.
 
 | Fichier | Couverture |
@@ -299,6 +299,8 @@ passerelle forcée, résolution pilotée à la main, aucun `sleep`.
 | `tests/test_idempotency.py`, `test_payment_flow.py`, `test_retry.py` | idempotence, flux `PENDING → ACCEPTED`, refus → retry → refus |
 | `tests/test_domain.py` | invariants, UUID v7, tentatives, comparaison métier |
 | `tests/test_adapters.py` | passerelle simulée (taux 0 / 1 / 5 %), dépôt en mémoire, planificateur asyncio |
+| `tests/test_repository_contract.py` | même contrat pour le stockage en mémoire et PostgreSQL (aller-retour, mise à jour, clé unique, tri, `PENDING`), chaînes Neon |
+| `tests/test_persistence.py` | survie à un redémarrage, reprise d'un `PENDING` interrompu, course entre deux instances sur la même clé, santé `degraded` |
 | `tests/test_logging.py` | JSON valide, corrélation `request_id`, événements attendus, niveau de log, clé API jamais journalisée, `500` JSON |
 | `tests/test_api.py`, `tests/test_api_key.py` | e2e HTTP, authentification |
 
@@ -316,8 +318,12 @@ limites : [VERIFICATION.md](VERIFICATION.md). Exploration manuelle : `scripts/re
 - `.python-version` : `3.12.8` (le défaut Render 3.14 empêchait l'installation de `pydantic-core`)
 - Déploiement automatique à chaque push sur `master`
 
-> **Un seul worker** : l'état est en mémoire et la résolution s'exécute comme tâche asyncio
-> dans le process.
+> **Un seul worker** : la résolution différée s'exécute comme tâche asyncio dans le process, et la
+> reprise des `PENDING` au démarrage n'est pas coordonnée entre instances.
+
+**Base de données** : PostgreSQL serverless sur Neon, via `PAYMENT_DATABASE_URL` (Render, `sync: false`).
+Tables `payment_requests` (clé d'idempotence unique) et `payment_transactions` (une ligne par
+tentative), créées au démarrage. Sans cette variable, stockage en mémoire.
 
 ---
 
@@ -325,9 +331,8 @@ limites : [VERIFICATION.md](VERIFICATION.md). Exploration manuelle : `scripts/re
 
 | Limite | Conséquence | Levée par |
 |---|---|---|
-| Persistance **en mémoire** | tout est perdu au redeploy / à la mise en veille Render | adapter Postgres |
-| Transaction `PENDING` non reprise après redémarrage | une transaction en attente au moment d'une coupure n'est jamais résolue | re-planification des `PENDING` au démarrage |
-| **Un seul worker** obligatoire | pas de scalabilité horizontale | conséquence directe de la persistance mémoire |
+| **Un seul worker** obligatoire | pas de scalabilité horizontale | réserver une transaction en base avant de la résoudre (statut intermédiaire ou verrou) |
+| Base Neon gratuite mise en veille | premier appel après inactivité plus lent | plan payant ou accepter la latence |
 | Passerelle **simulée** | aucun encaissement réel | adapter Stripe |
 | Pas d'événements publiés | Booking/Access doivent **poller** | publication `PaymentResolved` sur un broker |
 | Aucun test automatisé de l'UI `/ui` ni audit des dépendances | régression visuelle ou vulnérabilité non détectée par la CI | Playwright / `pip-audit` en CI |
@@ -340,7 +345,7 @@ limites : [VERIFICATION.md](VERIFICATION.md). Exploration manuelle : `scripts/re
 
 1. **Valider le contrat d'API** avec les équipes `booking` et `access` (payload, génération de
    la clé d'idempotence).
-2. **Persistance Postgres** (`PaymentRepository`) + **reprise des `PENDING`** au démarrage.
+2. ~~Persistance Postgres + reprise des `PENDING` au démarrage~~ (fait le 24 novembre, Neon).
 3. **Intégration Stripe** (`StripePaymentGateway`).
 4. (Optionnel) **Publication d'événements** `PaymentAccepted` / `PaymentRefused` vers un broker
    pour Messages et pour éviter le polling.

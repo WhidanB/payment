@@ -172,7 +172,8 @@ Le détail des scénarios, du polling et de la gestion d'erreurs est dans le [gu
 - [ ] Activation de la clé API en production.
 - [ ] Communication réelle avec Booking.
 - [ ] Communication réelle avec Access.
-- [ ] Persistance durable (Postgres) et reprise des transactions `PENDING` après redémarrage.
+- [x] Persistance durable (PostgreSQL sur Neon) : rien n'est perdu quand Render s'endort ou redéploie.
+- [x] Une transaction `PENDING` interrompue par un redémarrage est reprise et résolue au démarrage suivant.
 - [ ] Intégration de Stripe.
 
 ## Architecture
@@ -184,22 +185,23 @@ app/domain/model/       entités et règles (PaymentRequest, Transaction, enums,
 app/domain/ports/       interfaces (PaymentRepository, PaymentGateway, ResolutionScheduler)
 app/application/        cas d'usage (PaymentService)
 app/adapters/inbound/   routes FastAPI, DTO, sécurité X-API-Key
-app/adapters/outbound/  repo en mémoire, passerelle simulée, scheduler asyncio
+app/adapters/outbound/  repo PostgreSQL (Neon) ou en mémoire, passerelle simulée, scheduler asyncio
 app/container.py        composition root : point de câblage des adapters
 app/main.py             fabrique de l'application
 ```
 
-Pour brancher Stripe : ajouter `stripe_payment_gateway.py` implémentant `PaymentGateway` et le câbler dans `container.py`. Le domaine ne change pas. Même principe pour un repository Postgres.
+Pour brancher Stripe : ajouter `stripe_payment_gateway.py` implémentant `PaymentGateway` et le câbler dans `container.py`. Le domaine ne change pas. C'est ce qui a permis de passer du stockage en mémoire à PostgreSQL sans toucher au métier.
 
 ## Stack technique
 
 - Python 3.12 (Render, `.python-version`), FastAPI, Pydantic v2, pydantic-settings, uuid-utils, uvicorn
+- Base de données : PostgreSQL serverless sur **Neon** (driver `asyncpg`), stockage en mémoire si aucune base n'est configurée
 - Architecture hexagonale (domain / application / adapters)
-- Tests : pytest + httpx, 131 tests (domaine, adapters, flux asynchrone, validation, cas limites, logs, API), couverture de branches ~99,7 % (seuil 90 %) ; UI vérifiée dans Chromium headless (Playwright, hors dépendances du projet)
+- Tests : pytest + httpx, 163 tests (domaine, adapters, flux asynchrone, validation, cas limites, logs, API, persistance), couverture de branches ~99 % avec base de test (seuil 90 %), les tests PostgreSQL tournant contre un vrai Postgres 16 en CI ; UI vérifiée dans Chromium headless (Playwright, hors dépendances du projet)
 - Qualité : ruff (lint, format, complexité cyclomatique ≤ 10), GitHub Actions (`.github/workflows/ci.yml`), `scripts/verify.sh` pour les mêmes contrôles en local
 - Interface : une page HTML/CSS/JS vanilla sans dépendance, servie par FastAPI
 - Logs JSON structurés, `X-Request-ID` de bout en bout (y compris la résolution asynchrone)
-- Déploiement : Render (`render.yaml`, un seul worker, déploiement automatique à chaque push sur `master`)
+- Déploiement : Render (`render.yaml`, un seul worker, déploiement automatique à chaque push sur `master`) + Neon pour les données
 
 ## Lancer en local
 
@@ -212,6 +214,8 @@ uvicorn app.main:create_app --factory --reload
 
 Swagger : http://127.0.0.1:8000/docs
 
+Sans `PAYMENT_DATABASE_URL`, le service tourne en mémoire (pratique en local). Pour utiliser une base, copier `.env.example` en `.env` (ignoré par git) et renseigner `PAYMENT_DATABASE_URL`. Pour lancer aussi les tests PostgreSQL : `PAYMENT_TEST_DATABASE_URL=<base jetable> ./scripts/verify.sh` (les tables y sont vidées à chaque test : jamais la base de production).
+
 Pour voir un refus suivi du retry, sans changer la configuration : utiliser une référence commençant par `demo-refuse-once` (refusée à la tentative 1, acceptée au retry) ou `demo-refuse-always` (refusée aux deux tentatives), ou les boutons de démonstration de `/ui`. Pour que tous les paiements soient refusés : `PAYMENT_FAILURE_RATE=1 PAYMENT_PENDING_DELAY_SECONDS=3 uvicorn app.main:create_app --factory`.
 
 ## Configuration
@@ -223,12 +227,32 @@ Pour voir un refus suivi du retry, sans changer la configuration : utiliser une 
 | `PAYMENT_MAX_ATTEMPTS` | `2` | Transactions par demande (1 initiale + 1 retry) |
 | `PAYMENT_LOG_LEVEL` | `INFO` | Niveau de logs ; `DEBUG` journalise aussi `/health` et la liste sondée par l'UI |
 | `PAYMENT_API_KEY` | non défini | Clé attendue dans `X-API-Key` ; non défini = contrôle désactivé |
+| `PAYMENT_DATABASE_URL` | non défini | Chaîne de connexion PostgreSQL (Neon), collée telle quelle depuis Neon ; non défini = stockage en mémoire |
+
+## Base de données (Neon)
+
+PostgreSQL serverless hébergé sur [Neon](https://neon.tech). Les données survivent aux mises en veille et redéploiements de Render. Deux tables, créées automatiquement au démarrage :
+
+| Table | Contenu |
+|---|---|
+| `payment_requests` | une ligne par demande : clé d'idempotence (**unique**), montant (centimes, > 0), devise, référence, appelant, statut, dates |
+| `payment_transactions` | une ligne par tentative : demande (clé étrangère), numéro de tentative (unique par demande), statut, dates d'ouverture et de résolution |
+
+- La contrainte d'unicité sur la clé d'idempotence est la garantie finale contre le double encaissement, même si deux instances reçoivent la même demande au même instant.
+- Au démarrage, les transactions encore `PENDING` (service arrêté pendant l'attente) sont replanifiées pour le temps restant uniquement.
+- `/health` ne touche pas la base (les sondes fréquentes de Render ne réveillent pas Neon) ; `/health?deep=true` vérifie la connexion (`database: ok`, sinon `status: degraded`).
+
+Mise en place :
+
+1. Créer un projet sur neon.tech (région proche de celle du service Render), base `neondb`.
+2. Copier la chaîne de connexion (`postgresql://…neon.tech/neondb?sslmode=require&channel_binding=require`).
+3. Dans Render → service `payment` → **Environment** : ajouter `PAYMENT_DATABASE_URL` avec cette valeur, puis **Save**. Jamais dans Git.
+4. Vérifier : `curl $URL/health?deep=true` doit renvoyer `"storage": "postgres", "database": "ok"`.
 
 ## Limites connues
 
-- Persistance en mémoire : l'historique est perdu à chaque redéploiement ou mise en veille de Render.
-- Une transaction `PENDING` au moment d'un redémarrage n'est jamais résolue.
-- Un seul worker obligatoire (état et tâches de résolution dans le process).
+- Un seul worker : la création est sûre avec plusieurs instances (contrainte unique en base), mais la reprise des `PENDING` au démarrage et la résolution différée ne sont pas coordonnées entre instances. Plusieurs workers pourraient résoudre deux fois la même transaction.
+- Neon gratuit met la base en veille après quelques minutes sans requête : le premier appel suivant prend un peu plus de temps (réveil de la base, en plus de celui de Render).
 - Passerelle simulée : aucun encaissement réel. Les références commençant par `demo-refuse-` déclenchent des refus de démonstration ; elles n'auront plus d'effet avec Stripe.
 - Pas d'événements publiés : les appelants doivent faire du polling.
 
@@ -240,6 +264,7 @@ Pour voir un refus suivi du retry, sans changer la configuration : utiliser une 
 | API / Déploiement | 3 - Maîtrisé | En ligne sur Render, /health, Swagger/ReDoc, version 0.1.0 |
 | Intégration | 1 - Défini | Contrat d'API et guide fournis à Booking et Access, pas encore d'appel réel validé. Passera à 2 avec un premier appel réel de leur part |
 | Interface | 2 - Fonctionnel | Console `/ui` : objets, états, opérations, journal des actions, clé API. Pas de tests automatisés de l'UI dans le dépôt |
-| Qualité | 3 - Maîtrisé | 131 tests dont entrées invalides, cas limites, concurrence et panne du prestataire (vérifiés par mutation), couverture ~99,7 %, ruff + complexité, logs JSON corrélés, [guide de vérification](docs/VERIFICATION.md). Pas d'audit des dépendances (pip-audit) |
+| Qualité | 3 - Maîtrisé | 163 tests dont entrées invalides, cas limites, concurrence et panne du prestataire (vérifiés par mutation), couverture ~99 %, ruff + complexité, logs JSON corrélés, [guide de vérification](docs/VERIFICATION.md). Pas d'audit des dépendances (pip-audit) |
 | CI/CD | 2 - Fonctionnel | Déploiement continu Render sur push et workflow GitHub Actions (lint, format, tests, couverture) ; premier passage à constater après le push, pas de branch protection |
+| Données | 3 - Maîtrisé | PostgreSQL (Neon), schéma contraint (clé d'idempotence unique, montant > 0), écriture atomique, reprise des `PENDING` après redémarrage, mêmes tests de contrat pour les deux stockages |
 | Sécurité | 2 - Fonctionnel | `X-API-Key` implémentée, pas encore activée en production. Pas de rate limiting ni de headers de sécurité |

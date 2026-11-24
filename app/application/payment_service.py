@@ -14,8 +14,9 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 from app.application.errors import PaymentNotFound
+from app.domain.model.clock import now
 from app.domain.model.enums import SourceService
-from app.domain.model.errors import IdempotencyConflict
+from app.domain.model.errors import IdempotencyConflict, IdempotencyKeyTaken
 from app.domain.model.payment import PaymentReference, PaymentRequest
 from app.domain.model.transaction import Transaction
 from app.domain.ports.payment_gateway import GatewayResult, PaymentGateway
@@ -63,22 +64,7 @@ class PaymentService:
         async with self._key_locks[command.idempotency_key]:
             existing = await self._repository.find_by_idempotency_key(command.idempotency_key)
             if existing is not None:
-                if not existing.is_same_request(
-                    amount=command.amount,
-                    currency=command.currency,
-                    reference=command.reference,
-                    source_service=command.source_service,
-                ):
-                    logger.warning(
-                        "payment.idempotency_conflict",
-                        extra=_fields(existing, detail="same key, different payload"),
-                    )
-                    raise IdempotencyConflict(command.idempotency_key)
-                logger.info(
-                    "payment.idempotent_hit",
-                    extra=_fields(existing, transaction=existing.current_transaction),
-                )
-                return RequestPaymentResult(payment=existing, created=False)
+                return self._replay(existing, command)
 
             payment = PaymentRequest.create(
                 idempotency_key=command.idempotency_key,
@@ -89,12 +75,61 @@ class PaymentService:
                 max_attempts=self._max_attempts,
             )
             transaction = payment.open_transaction()
-            await self._repository.save(payment)
+            try:
+                await self._repository.save(payment)
+            except IdempotencyKeyTaken:
+                # Another instance stored the same key between our read and our write:
+                # the database's unique constraint decided, we answer as for a replay.
+                winner = await self._repository.find_by_idempotency_key(command.idempotency_key)
+                if winner is None:
+                    raise
+                return self._replay(winner, command)
 
         logger.info("payment.requested", extra=_fields(payment))
         logger.info("transaction.created", extra=_fields(payment, transaction=transaction))
         self._schedule_resolution(payment.id, transaction.id)
         return RequestPaymentResult(payment=payment, created=True)
+
+    def _replay(
+        self, existing: PaymentRequest, command: RequestPaymentCommand
+    ) -> RequestPaymentResult:
+        if not existing.is_same_request(
+            amount=command.amount,
+            currency=command.currency,
+            reference=command.reference,
+            source_service=command.source_service,
+        ):
+            logger.warning(
+                "payment.idempotency_conflict",
+                extra=_fields(existing, detail="same key, different payload"),
+            )
+            raise IdempotencyConflict(command.idempotency_key)
+        logger.info(
+            "payment.idempotent_hit",
+            extra=_fields(existing, transaction=existing.current_transaction),
+        )
+        return RequestPaymentResult(payment=existing, created=False)
+
+    async def resume_pending(self) -> int:
+        """Re-schedule transactions left PENDING by a restart, for the remaining delay only."""
+
+        resumed = 0
+        for payment in await self._repository.find_with_pending_transactions():
+            for transaction in payment.transactions:
+                if not transaction.is_pending:
+                    continue
+                elapsed = (now() - transaction.created_at).total_seconds()
+                remaining = max(0.0, self._pending_delay_seconds - elapsed)
+                logger.info(
+                    "transaction.resumed",
+                    extra={
+                        **_fields(payment, transaction=transaction),
+                        "remaining_seconds": round(remaining, 3),
+                    },
+                )
+                self._schedule_resolution(payment.id, transaction.id, delay=remaining)
+                resumed += 1
+        return resumed
 
     async def get_payment(self, payment_id: str) -> PaymentRequest:
         payment = await self._repository.get(payment_id)
@@ -107,11 +142,13 @@ class PaymentService:
 
     # -- asynchronous resolution ---------------------------------------------------
 
-    def _schedule_resolution(self, payment_id: str, transaction_id: str) -> None:
+    def _schedule_resolution(
+        self, payment_id: str, transaction_id: str, delay: float | None = None
+    ) -> None:
         async def _callback() -> None:
             await self._resolve_transaction(payment_id, transaction_id)
 
-        self._scheduler.schedule(self._pending_delay_seconds, _callback)
+        self._scheduler.schedule(self._pending_delay_seconds if delay is None else delay, _callback)
 
     async def _resolve_transaction(self, payment_id: str, transaction_id: str) -> None:
         payment = await self._repository.get(payment_id)

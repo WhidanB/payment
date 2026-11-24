@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 
+from app.domain.model.errors import IdempotencyKeyTaken
 from app.domain.model.payment import PaymentRequest
 from app.domain.ports.payment_repository import PaymentRepository
 
@@ -18,6 +19,9 @@ class InMemoryPaymentRepository(PaymentRepository):
         self._id_by_key: dict[str, str] = {}
 
     async def save(self, payment: PaymentRequest) -> None:
+        owner = self._id_by_key.get(payment.idempotency_key)
+        if owner is not None and owner != payment.id:
+            raise IdempotencyKeyTaken(payment.idempotency_key)
         self._by_id[payment.id] = copy.deepcopy(payment)
         self._id_by_key[payment.idempotency_key] = payment.id
 
@@ -32,3 +36,10 @@ class InMemoryPaymentRepository(PaymentRepository):
     async def list_recent(self, limit: int) -> list[PaymentRequest]:
         newest_first = sorted(self._by_id.values(), key=lambda p: p.created_at, reverse=True)
         return [copy.deepcopy(p) for p in newest_first[:limit]]
+
+    async def find_with_pending_transactions(self) -> list[PaymentRequest]:
+        return [
+            copy.deepcopy(p)
+            for p in sorted(self._by_id.values(), key=lambda p: p.created_at)
+            if any(t.is_pending for t in p.transactions)
+        ]

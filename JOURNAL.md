@@ -147,3 +147,34 @@ Jalon 9 (qualité et fiabilité). Audit du comportement du service, puis correct
 - Vérifier en production (Render) : `/ui`, les boutons de démonstration du refus, `X-Request-ID` et le `409`.
 - Optionnel : `pip-audit` en CI, branch protection sur `master`, tests automatisés de l'UI.
 - Activer `PAYMENT_API_KEY` après avoir prévenu Booking et Access ; persistance Postgres et reprise des `PENDING`.
+
+## 24 novembre
+
+### Fait
+
+- Questions de revue : les actions utilisateurs sont-elles loggées (oui côté API, mais sans identité de l'appelant ni motif des `422` / `401`, et le journal de l'UI reste dans le navigateur), et quelle base de données (aucune : stockage en mémoire, perdu à chaque mise en veille de Render).
+- Décision : base PostgreSQL serverless sur **Neon**, pour ne plus rien perdre quand Render s'endort.
+- Adapter `PostgresPaymentRepository` (driver `asyncpg`), branché à la place du stockage en mémoire sans toucher au domaine (port `PaymentRepository`). Choix du stockage dans `container.py` selon `PAYMENT_DATABASE_URL`.
+- Schéma créé au démarrage (verrou consultatif pour plusieurs instances) : `payment_requests` (clé d'idempotence **unique**, montant > 0) et `payment_transactions` (une ligne par tentative, unique par demande, index sur les `PENDING`). Écriture de l'agrégat dans une seule transaction SQL.
+- Idempotence garantie par la base : si deux instances créent la même clé au même instant, la contrainte unique tranche et la seconde répond comme un rejeu (`200`) ou un conflit (`409`).
+- Reprise après redémarrage : au démarrage, les transactions encore `PENDING` sont replanifiées pour le temps restant seulement, puis résolues normalement (retry compris).
+- `/health` indique le stockage sans toucher la base (les sondes Render ne réveillent pas Neon) ; `/health?deep=true` vérifie la connexion (`degraded` si la base est injoignable). L'UI affiche le stockage utilisé.
+- Réglages propres à Neon : pool sans connexion inactive durable (Neon suspend la base), cache de requêtes préparées désactivé (pooler), chaîne de connexion acceptée telle que copiée depuis Neon.
+- `render.yaml` : `PAYMENT_DATABASE_URL` en `sync: false` (jamais dans Git) ; `.env.example` pour le local ; CI GitHub Actions avec un service Postgres 16.
+- 131 → 163 tests : contrat commun aux deux stockages, survie à un redémarrage, reprise d'un `PENDING` interrompu, course entre deux instances, santé `degraded`, chaînes Neon. Couverture ~99 % avec base, 92 % sans. Garde-fous vérifiés par mutation (gestion de la course, reprise au démarrage).
+- Vérifié avec un vrai serveur : service arrêté 2 s après la création d'un paiement, redémarré, transaction reprise pour les ~5,4 s restantes puis résolue (refus, retry, acceptation).
+- Documentation mise à jour : README (section Neon, mise en place, configuration, limites, maturité), `ETAT_DU_SERVICE.md`, `VERIFICATION.md`, guide d'intégration.
+
+### Problèmes
+
+- Pas de Postgres ni de Docker sur la machine de développement : tests faits contre un Postgres 16 embarqué (`pgserver`, installé hors du projet) ; la CI utilise un conteneur Postgres.
+- La chaîne de connexion fournie par Neon contient `channel_binding=require`, option propre à libpq qu'`asyncpg` transmet au serveur, qui la rejette : le service aurait planté au démarrage. Le paramètre est retiré avant la connexion (testé).
+- Fixture de test asynchrone paramétrée qui démarrait la base dans une boucle déjà active : passée en fixture synchrone.
+
+### Suite
+
+- Créer le projet Neon, ajouter `PAYMENT_DATABASE_URL` dans Render, vérifier `/health?deep=true` (`storage: postgres`, `database: ok`), puis créer un paiement, attendre la mise en veille et vérifier qu'il est toujours là.
+- Rester sur un seul worker : la résolution différée n'est pas coordonnée entre instances.
+- Logs : identifier l'origine des actions (UI, appelant), motif des `422`, `401` en avertissement.
+- Activer `PAYMENT_API_KEY` après avoir prévenu Booking et Access.
+

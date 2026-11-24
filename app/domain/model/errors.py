@@ -23,3 +23,15 @@ class IdempotencyConflict(PaymentDomainError):
             f"idempotency_key {idempotency_key!r} was already used with a different request"
         )
         self.idempotency_key = idempotency_key
+
+
+class IdempotencyKeyTaken(PaymentDomainError):
+    """Storage refused a new request: its idempotency key already belongs to another one.
+
+    Happens when two instances create the same key at the same time; the caller then
+    reads the winner back and treats the call as a replay (or a conflict).
+    """
+
+    def __init__(self, idempotency_key: str) -> None:
+        super().__init__(f"idempotency_key {idempotency_key!r} is already stored")
+        self.idempotency_key = idempotency_key

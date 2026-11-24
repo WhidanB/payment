@@ -18,5 +18,7 @@ services:
         value: "2"
       - key: PAYMENT_LOG_LEVEL
         value: "INFO"
+      - key: PAYMENT_DATABASE_URL
+        sync: false  # Neon connection string, set in the Render dashboard; unset = in-memory
       - key: PAYMENT_API_KEY
         sync: false  # set manually in the Render dashboard when ready to enforce auth; unset = auth disabled

@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 from app.adapters.outbound.asyncio_resolution_scheduler import AsyncioResolutionScheduler
 from app.adapters.outbound.in_memory_payment_repository import InMemoryPaymentRepository
+from app.adapters.outbound.postgres_payment_repository import PostgresPaymentRepository
 from app.adapters.outbound.simulated_payment_gateway import SimulatedPaymentGateway
 from app.application.payment_service import PaymentService
 from app.config import Settings, get_settings
@@ -26,11 +27,25 @@ class Container:
     scheduler: ResolutionScheduler
     payment_service: PaymentService
 
+    @property
+    def storage(self) -> str:
+        return "postgres" if isinstance(self.repository, PostgresPaymentRepository) else "memory"
 
-def build_container(settings: Settings | None = None) -> Container:
+    async def close(self) -> None:
+        if isinstance(self.scheduler, AsyncioResolutionScheduler):
+            await self.scheduler.shutdown()
+        if isinstance(self.repository, PostgresPaymentRepository):
+            await self.repository.close()
+
+
+async def build_container(settings: Settings | None = None) -> Container:
     settings = settings or get_settings()
 
-    repository: PaymentRepository = InMemoryPaymentRepository()
+    repository: PaymentRepository
+    if settings.database_url:
+        repository = await PostgresPaymentRepository.connect(settings.database_url)
+    else:
+        repository = InMemoryPaymentRepository()
     gateway: PaymentGateway = SimulatedPaymentGateway(failure_rate=settings.failure_rate)
     scheduler: ResolutionScheduler = AsyncioResolutionScheduler()
 

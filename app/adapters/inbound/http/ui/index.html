@@ -226,6 +226,7 @@
       "v" + h.version, "en ligne depuis " + Math.round(h.uptime_seconds) + " s",
       "PENDING " + h.pending_delay_seconds + " s", "max " + h.max_attempts + " tentatives",
       "refus simulés " + Math.round(h.failure_rate * 100) + " %",
+      h.storage === "postgres" ? "stockage PostgreSQL" : "stockage en mémoire (perdu au redémarrage)",
       h.auth_enabled ? "authentification active" : "authentification désactivée",
     ];
     for (const c of chips) box.append(el("span", { class: "chip", text: c }));

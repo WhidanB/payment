@@ -6,6 +6,7 @@ the async flow is fully deterministic — no sleeps.
 
 from __future__ import annotations
 
+import os
 from collections import deque
 
 import pytest
@@ -40,8 +41,10 @@ class ManualScheduler(ResolutionScheduler):
 
     def __init__(self) -> None:
         self._pending: deque[ResolutionCallback] = deque()
+        self.delays: list[float] = []
 
     def schedule(self, delay_seconds: float, callback: ResolutionCallback) -> None:
+        self.delays.append(delay_seconds)
         self._pending.append(callback)
 
     async def run_all(self) -> None:
@@ -95,3 +98,31 @@ def client(monkeypatch):
     with TestClient(create_app()) as c:
         yield c
     get_settings.cache_clear()
+
+
+# -- PostgreSQL ------------------------------------------------------------------------
+# Postgres tests run when PAYMENT_TEST_DATABASE_URL points to a disposable database
+# (CI provides one; locally e.g. `pgserver` or a Neon branch). Tables are emptied per test.
+
+TEST_DATABASE_URL = os.environ.get("PAYMENT_TEST_DATABASE_URL")
+needs_postgres = pytest.mark.skipif(
+    not TEST_DATABASE_URL, reason="PAYMENT_TEST_DATABASE_URL not set"
+)
+
+
+@pytest.fixture
+def pg_dsn():
+    if not TEST_DATABASE_URL:
+        pytest.skip("PAYMENT_TEST_DATABASE_URL not set")
+    return TEST_DATABASE_URL
+
+
+@pytest.fixture
+async def pg_repository(pg_dsn):
+    from app.adapters.outbound.postgres_payment_repository import PostgresPaymentRepository
+
+    repo = await PostgresPaymentRepository.connect(pg_dsn)
+    async with repo._pool.acquire() as conn:
+        await conn.execute("TRUNCATE payment_requests CASCADE")
+    yield repo
+    await repo.close()

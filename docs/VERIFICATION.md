@@ -19,7 +19,7 @@ pip install -r requirements-dev.txt
 | Format | `ruff format --check` | aucun écart |
 | Tests + couverture de branches | `pytest --cov` | tous verts, couverture ≥ 90 % (actuellement ~99,7 %) |
 
-Résultat attendu (à la date du 18 novembre) : `131 passed`, `Total coverage: 99.xx%`.
+Résultat attendu (à la date du 18 novembre) : `163 passed` (ou `148 passed, 15 skipped` sans base de test), `Total coverage: 99.xx%`.
 
 Les tests sont déterministes : pas de `sleep`, passerelle forcée, planificateur piloté à la main
 (`tests/conftest.py`). Un échec est donc un vrai défaut, pas un test instable.
@@ -67,6 +67,24 @@ Les tests sont déterministes : pas de `sleep`, passerelle forcée, planificateu
 Invariants de création, UUID v7 (demande et transactions, uniques et ordonnés dans le temps),
 numérotation des tentatives et borne `max_attempts`, une transaction ne se résout qu'une fois,
 comparaison métier utilisée pour détecter un conflit d'idempotence.
+
+### Persistance (`tests/test_repository_contract.py`, `tests/test_persistence.py`)
+
+| Cas | Comportement garanti |
+|---|---|
+| Même contrat pour le stockage en mémoire et PostgreSQL | aller-retour complet, mise à jour, identifiant inconnu ou malformé → `None`, tri, copies indépendantes |
+| Deux demandes avec la même clé | refusé par la base (`IdempotencyKeyTaken`), une seule ligne |
+| Deux instances qui reçoivent la même clé au même instant | une seule demande créée, l'autre répond comme un rejeu (`200`) ou un conflit (`409`) |
+| Redémarrage du service | les paiements sont toujours là, le rejeu d'une clé est toujours reconnu |
+| Service arrêté pendant un `PENDING` | au démarrage, la transaction est replanifiée pour le temps restant puis résolue |
+| Base injoignable | `/health?deep=true` → `status: degraded`, `database: unreachable` ; `/health` simple ne touche jamais la base |
+| Chaîne de connexion copiée depuis Neon | acceptée telle quelle (`channel_binding`, propre à libpq, est retiré) |
+
+Lancer avec une base jetable :
+
+```bash
+PAYMENT_TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres ./scripts/verify.sh
+```
 
 ### Adapters (`tests/test_adapters.py`)
 
@@ -133,8 +151,11 @@ Render (un JSON par ligne).
 
 ## 6. Limites connues de la vérification
 
-- Persistance en mémoire : un redéploiement efface l'historique, aucun test ne couvre un redémarrage
-  avec des transactions `PENDING` (la reprise n'est pas implémentée).
+- Les tests PostgreSQL ne tournent que si `PAYMENT_TEST_DATABASE_URL` est défini (toujours en CI, avec
+  un Postgres 16 ; en local ils sont sinon ignorés). La base Neon de production n'est jamais utilisée
+  par les tests.
+- Plusieurs instances simultanées ne sont pas couvertes au-delà de la création (la résolution différée
+  reste dans le process : un seul worker).
 - La branche « règle métier violée après validation du schéma » de la route `POST /payments`
   n'est pas atteignable par HTTP (le schéma refuse déjà ces cas) ; elle reste comme filet de sécurité
   et est couverte au niveau du domaine (`test_domain.py`).

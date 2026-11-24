@@ -15,7 +15,6 @@ from fastapi.responses import JSONResponse
 
 from app import __version__
 from app.adapters.inbound.http import routes_health, routes_payments, routes_ui
-from app.adapters.outbound.asyncio_resolution_scheduler import AsyncioResolutionScheduler
 from app.config import get_settings
 from app.container import build_container
 from app.domain.model.ids import new_id
@@ -29,13 +28,14 @@ _QUIET_PATHS = {"/health"}  # polled by Render / the UI: logged at DEBUG only
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.container = build_container()
+    container = await build_container()
+    app.state.container = container
+    resumed = await container.payment_service.resume_pending()
+    logger.info("app.started", extra={"storage": container.storage, "resumed": resumed})
     try:
         yield
     finally:
-        scheduler = app.state.container.scheduler
-        if isinstance(scheduler, AsyncioResolutionScheduler):
-            await scheduler.shutdown()
+        await container.close()
 
 
 def create_app() -> FastAPI:

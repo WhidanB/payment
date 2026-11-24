@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     # Root log level (DEBUG also logs /health and the UI's list polling).
     log_level: str = "INFO"
 
+    # PostgreSQL DSN (Neon in production). Unset = in-memory storage (lost on restart).
+    database_url: str | None = None
+
     # Shared secret callers must send as `X-API-Key`. None = auth disabled (local/test).
     api_key: str | None = None
 

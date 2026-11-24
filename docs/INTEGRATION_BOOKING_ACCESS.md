@@ -187,10 +187,9 @@ Le champ `transactions[]` donne le détail des tentatives si besoin de diagnosti
 
 - **Pas d'événements asynchrones** (`PaymentAccepted`/`PaymentRefused` sur un broker) :
   le polling est la seule méthode pour l'instant.
-- **Persistance en mémoire** côté `payment` : un redeploy/mise en veille Render efface
-  l'historique des demandes en cours. Sans impact sur une demande déjà résolue consultée
-  juste après, mais ne construisez pas de logique qui dépend de paiements anciens
-  retrouvables indéfiniment.
+- Les paiements sont **persistés** (PostgreSQL) : un paiement reste consultable après un
+  redéploiement ou une mise en veille de Render, et une transaction en attente est reprise au
+  redémarrage.
 - `amount` est un **entier en centimes** (`1250` = 12,50 €), de 1 à 10 000 000. Un texte
   (`"1250"`), un décimal (`12.5`) ou un booléen est refusé (`422`). `currency` figé à `"EUR"`.
 - `idempotency_key` : 1 à 200 caractères ; `reference.id` : 1 à 100 caractères.
