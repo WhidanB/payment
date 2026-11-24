@@ -143,7 +143,7 @@ Jalon 9 (qualité et fiabilité). Audit du comportement du service, puis correct
 
 ### Suite
 
-- Pousser (7 commits en attente environ) et constater le premier passage de la CI GitHub Actions.
-- Redéployer sur Render et vérifier `/ui`, `X-Request-ID` et le `409` en production.
+- Constater le passage de la CI GitHub Actions sur les commits poussés.
+- Vérifier en production (Render) : `/ui`, les boutons de démonstration du refus, `X-Request-ID` et le `409`.
 - Optionnel : `pip-audit` en CI, branch protection sur `master`, tests automatisés de l'UI.
 - Activer `PAYMENT_API_KEY` après avoir prévenu Booking et Access ; persistance Postgres et reprise des `PENDING`.
