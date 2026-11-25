@@ -109,15 +109,15 @@ champs de l'événement. Un seul format, filtrable avec `jq`.
 | `payment.idempotent_hit` | rejeu reconnu | |
 | `payment.idempotency_conflict` (WARNING) | même clé, requête différente | |
 | `gateway.error` (ERROR) | exception du prestataire | `exception` |
-| `http.unhandled_error` (ERROR) | exception non prévue (réponse `500` JSON) | `exception`, `request_id` |
+| `http.unhandled_error` (ERROR) | exception non prévue (réponse `500` JSON) | `exception`, `correlation_id` |
 
-**Corrélation.** Chaque requête reçoit un `request_id` : l'en-tête `X-Request-ID` de l'appelant
+**Corrélation.** Chaque requête reçoit un `correlation_id` : l'en-tête `X-Correlation-ID` de l'appelant
 s'il est valide (`[A-Za-z0-9._-]`, 64 caractères max), sinon un UUID v7 généré. Il est renvoyé dans
 l'en-tête de la réponse et porté par **toutes** les lignes liées, y compris la résolution
 asynchrone 15 s plus tard. Pour reconstituer l'histoire d'un paiement :
 
 ```bash
-jq -c 'select(.request_id == "demo-trace-1")' logs.jsonl
+jq -c 'select(.correlation_id == "demo-trace-1")' logs.jsonl
 jq -c 'select(.payment_id == "<payment_id>") | {timestamp, message, attempt, transaction_status}' logs.jsonl
 ```
 
@@ -135,7 +135,7 @@ Bruit : `/health` et `GET /payments` (sondés par Render et la console) ne sont 
 | La nouvelle présentation par l'appelant après un refus définitif | rejouer la même clé : `200`, toujours `REFUSED` ; créer une nouvelle demande (nouvelle clé) : nouvel essai (bouton « Représenter ce paiement » dans `/ui`) |
 | Un paiement toujours accepté | `PAYMENT_FAILURE_RATE=0` |
 | Un conflit d'idempotence | envoyer deux `POST` avec la même `idempotency_key` et des montants différents : `409` |
-| La corrélation des logs | envoyer `-H 'X-Request-ID: demo-1'` puis `grep demo-1` dans la sortie du serveur |
+| La corrélation des logs | envoyer `-H 'X-Correlation-ID: demo-1'` puis `grep demo-1` dans la sortie du serveur |
 | Tout depuis un navigateur | ouvrir `/ui` (création, rejeu, lot de 20, journal des actions) |
 
 ## 5. Vérifier la production

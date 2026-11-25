@@ -178,3 +178,22 @@ Jalon 9 (qualité et fiabilité). Audit du comportement du service, puis correct
 - Logs : identifier l'origine des actions (UI, appelant), motif des `422`, `401` en avertissement.
 - Activer `PAYMENT_API_KEY` après avoir prévenu Booking et Access.
 
+
+## 25 novembre
+
+### Fait
+
+- Questions de revue sur l'idempotence (clé fournie par l'appelant, contrainte unique en base, rôle des UUID), la génération des clés API et les logs.
+- Constat dans les logs de production : Booking n'envoie aucun identifiant de corrélation (le `request_id` d'un de ses `GET` est un UUID v7 daté de l'arrivée de la requête, donc généré par nous).
+- Décision commune : l'en-tête de corrélation de toute la chaîne est **`X-Correlation-ID`**. Le service le lit, le génère s'il manque, le renvoie et le porte dans chaque ligne de log (champ `correlation_id`, y compris la résolution 15 s plus tard et le corps des `500`). `X-Request-ID` n'est plus lu.
+- Guide d'intégration, README, `ETAT_DU_SERVICE.md` et `VERIFICATION.md` mis à jour.
+
+### Problèmes
+
+- Les clés d'idempotence de Booking finissent par un suffixe aléatoire (`booking-095243-e2727434`) : un rejeu après timeout avec une nouvelle clé créerait un second paiement.
+
+### Suite
+
+- Prévenir Booking et Access de l'en-tête `X-Correlation-ID` à propager.
+- Demander à Booking une clé d'idempotence déterministe (`booking:{reservation_id}:create`), ou ajouter côté service une seule demande `PENDING`/`ACCEPTED` par référence.
+- Conserver le `correlation_id` en base pour qu'une transaction reprise après redémarrage garde le sien.

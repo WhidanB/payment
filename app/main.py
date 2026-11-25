@@ -18,11 +18,11 @@ from app.adapters.inbound.http import routes_health, routes_payments, routes_ui
 from app.config import get_settings
 from app.container import build_container
 from app.domain.model.ids import new_id
-from app.logging_config import configure_logging, request_id_var
+from app.logging_config import configure_logging, correlation_id_var
 
 logger = logging.getLogger("payment.http")
 
-_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+_CORRELATION_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 _QUIET_PATHS = {"/health"}  # polled by Render / the UI: logged at DEBUG only
 
 
@@ -55,9 +55,9 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def request_context(request: Request, call_next):
-        supplied = request.headers.get("x-request-id", "")
-        request_id = supplied if _REQUEST_ID_RE.match(supplied) else new_id()
-        token = request_id_var.set(request_id)
+        supplied = request.headers.get("x-correlation-id", "")
+        correlation_id = supplied if _CORRELATION_ID_RE.match(supplied) else new_id()
+        token = correlation_id_var.set(correlation_id)
         started = time.perf_counter()
         status_code = 500
         try:
@@ -66,7 +66,8 @@ def create_app() -> FastAPI:
         except Exception:
             logger.exception("http.unhandled_error")
             response = JSONResponse(
-                {"detail": "internal server error", "request_id": request_id}, status_code=500
+                {"detail": "internal server error", "correlation_id": correlation_id},
+                status_code=500,
             )
         finally:
             polling = request.url.path in _QUIET_PATHS or (
@@ -82,8 +83,8 @@ def create_app() -> FastAPI:
                     "duration_ms": round((time.perf_counter() - started) * 1000, 1),
                 },
             )
-            request_id_var.reset(token)
-        response.headers["X-Request-ID"] = request_id
+            correlation_id_var.reset(token)
+        response.headers["X-Correlation-ID"] = correlation_id
         return response
 
     app.include_router(routes_health.router)

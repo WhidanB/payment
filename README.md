@@ -128,7 +128,7 @@ Corps de `POST /payments` :
 | `reference.id` | Identifiant de la réservation ou du stationnement, 1 à 100 caractères |
 | `source_service` | `booking` ou `access` |
 
-Toute entrée invalide renvoie `422` avec le champ fautif dans `detail`, sans rien créer. Rejouer une clé avec la **même** requête renvoie `200` ; la rejouer avec une requête **différente** (montant, référence ou appelant) renvoie `409` et ne modifie pas la demande d'origine. Chaque réponse porte un en-tête `X-Request-ID` (celui envoyé par l'appelant s'il est valide, sinon généré) retrouvable dans les logs.
+Toute entrée invalide renvoie `422` avec le champ fautif dans `detail`, sans rien créer. Rejouer une clé avec la **même** requête renvoie `200` ; la rejouer avec une requête **différente** (montant, référence ou appelant) renvoie `409` et ne modifie pas la demande d'origine. Chaque réponse porte un en-tête `X-Correlation-ID` (celui envoyé par l'appelant s'il est valide, sinon généré) retrouvable dans les logs.
 
 Le détail des scénarios, du polling et de la gestion d'erreurs est dans le [guide d'intégration](docs/INTEGRATION_BOOKING_ACCESS.md).
 
@@ -159,7 +159,7 @@ Le détail des scénarios, du polling et de la gestion d'erreurs est dans le [gu
 - [x] Un refus déclenche un retry automatique (une seule fois).
 - [x] Environ 5 % des paiements simulés sont refusés, pour tester le comportement en cas d'échec.
 - [x] Un refus suivi de sa nouvelle présentation automatique se démontre à coup sûr (références `demo-refuse-once…` / `demo-refuse-always…`, boutons dans `/ui`).
-- [x] Chaque transaction et chaque changement d'état est journalisé (JSON, corrélé par `request_id`).
+- [x] Chaque transaction et chaque changement d'état est journalisé (JSON, corrélé par `correlation_id`).
 - [x] Les entrées invalides sont refusées (`422`) et la réutilisation d'une clé avec une requête différente est refusée (`409`).
 - [x] Une panne de la passerelle ne laisse jamais une transaction bloquée en `PENDING`.
 - [x] Le comportement est vérifiable en une commande (`./scripts/verify.sh`) et par la CI.
@@ -200,7 +200,7 @@ Pour brancher Stripe : ajouter `stripe_payment_gateway.py` implémentant `Paymen
 - Tests : pytest + httpx, 163 tests (domaine, adapters, flux asynchrone, validation, cas limites, logs, API, persistance), couverture de branches ~99 % avec base de test (seuil 90 %), les tests PostgreSQL tournant contre un vrai Postgres 16 en CI ; UI vérifiée dans Chromium headless (Playwright, hors dépendances du projet)
 - Qualité : ruff (lint, format, complexité cyclomatique ≤ 10), GitHub Actions (`.github/workflows/ci.yml`), `scripts/verify.sh` pour les mêmes contrôles en local
 - Interface : une page HTML/CSS/JS vanilla sans dépendance, servie par FastAPI
-- Logs JSON structurés, `X-Request-ID` de bout en bout (y compris la résolution asynchrone)
+- Logs JSON structurés, `X-Correlation-ID` de bout en bout (y compris la résolution asynchrone)
 - Déploiement : Render (`render.yaml`, un seul worker, déploiement automatique à chaque push sur `master`) + Neon pour les données
 
 ## Lancer en local

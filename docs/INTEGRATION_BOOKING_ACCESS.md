@@ -199,7 +199,7 @@ Le champ `transactions[]` donne le détail des tentatives si besoin de diagnosti
   est refusé aux deux tentatives. Utile pour tester votre gestion du refus ; n'utilisez pas ce préfixe
   pour de vraies références.
 
-**Traçabilité.** Envoyez un en-tête `X-Request-ID` (lettres, chiffres, `.`, `_`, `-`, 64 caractères max)
+**Traçabilité.** Envoyez un en-tête `X-Correlation-ID` (lettres, chiffres, `.`, `_`, `-`, 64 caractères max)
 pour retrouver votre appel dans nos logs ; sinon nous en générons un et le renvoyons dans l'en-tête de
 la réponse. Communiquez-le-nous en cas de problème : il relie la création du paiement et sa résolution
 15 s plus tard.

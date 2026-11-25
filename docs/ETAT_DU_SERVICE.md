@@ -149,7 +149,7 @@ Réponse :
   existante, **sans** nouvelle transaction.
 - Réutilisation d'une clé avec une requête **différente** (montant, référence, appelant) → `409`,
   la demande d'origine est inchangée.
-- Toutes les réponses portent `X-Request-ID` (celui de l'appelant s'il est valide, sinon généré).
+- Toutes les réponses portent `X-Correlation-ID` (celui de l'appelant s'il est valide, sinon généré).
 
 ### `GET /payments/{payment_id}` → `200 OK`
 
@@ -235,9 +235,9 @@ Chaque changement d'état émet **une ligne JSON** sur `stdout` : `payment.reque
 `payment.retry_scheduled`, `payment.accepted` / `payment.refused`, `payment.idempotent_hit`,
 `payment.idempotency_conflict`, `gateway.error`, et une ligne `http.request` par appel
 (`method`, `path`, `status`, `duration_ms`). Champs : `payment_id`, `transaction_id`, `attempt`,
-`idempotency_key`, `amount`, `currency`, `reference_*`, `source_service`, statut, `request_id`.
+`idempotency_key`, `amount`, `currency`, `reference_*`, `source_service`, statut, `correlation_id`.
 
-Le `request_id` (en-tête `X-Request-ID`) relie tous les événements d'une requête, **y compris la
+Le `correlation_id` (en-tête `X-Correlation-ID`) relie tous les événements d'une requête, **y compris la
 résolution asynchrone** déclenchée 15 s plus tard. `/health` et la liste sondée par l'UI ne sont
 journalisés qu'en `DEBUG`. Catalogue complet et requêtes `jq` : [VERIFICATION.md](VERIFICATION.md).
 
@@ -301,7 +301,7 @@ passerelle forcée, résolution pilotée à la main, aucun `sleep`.
 | `tests/test_adapters.py` | passerelle simulée (taux 0 / 1 / 5 %), dépôt en mémoire, planificateur asyncio |
 | `tests/test_repository_contract.py` | même contrat pour le stockage en mémoire et PostgreSQL (aller-retour, mise à jour, clé unique, tri, `PENDING`), chaînes Neon |
 | `tests/test_persistence.py` | survie à un redémarrage, reprise d'un `PENDING` interrompu, course entre deux instances sur la même clé, santé `degraded` |
-| `tests/test_logging.py` | JSON valide, corrélation `request_id`, événements attendus, niveau de log, clé API jamais journalisée, `500` JSON |
+| `tests/test_logging.py` | JSON valide, corrélation `correlation_id`, événements attendus, niveau de log, clé API jamais journalisée, `500` JSON |
 | `tests/test_api.py`, `tests/test_api_key.py` | e2e HTTP, authentification |
 
 Les trois garde-fous critiques (verrou par clé, capture des exceptions de la passerelle, détection de

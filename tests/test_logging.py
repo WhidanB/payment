@@ -1,4 +1,4 @@
-"""Logs must be exploitable: JSON lines, one event per state change, linked by request id."""
+"""Logs must be exploitable: JSON lines, one event per state change, linked by correlation id."""
 
 from __future__ import annotations
 
@@ -41,12 +41,12 @@ def test_every_log_line_is_valid_json_with_the_standard_fields(capsys, client):
         assert {"timestamp", "level", "logger", "message"} <= line.keys()
 
 
-def test_payment_lifecycle_events_share_the_originating_request_id(capsys, client):
+def test_payment_lifecycle_events_share_the_originating_correlation_id(capsys, client):
     created = client.post("/payments", json=BODY)
-    request_id = created.headers["X-Request-ID"]
+    correlation_id = created.headers["X-Correlation-ID"]
     wait_settled(client, created.json()["payment_id"])
 
-    lines = [line for line in log_lines(capsys) if line.get("request_id") == request_id]
+    lines = [line for line in log_lines(capsys) if line.get("correlation_id") == correlation_id]
     events = [line["message"] for line in lines]
 
     for expected in (
@@ -86,17 +86,19 @@ def test_idempotent_replay_and_conflict_are_logged(capsys, client):
     assert ("payment.idempotency_conflict", "WARNING") in messages
 
 
-def test_request_id_is_generated_echoed_or_replaced(client):
-    generated = client.get("/health").headers["X-Request-ID"]
+def test_correlation_id_is_generated_echoed_or_replaced(client):
+    generated = client.get("/health").headers["X-Correlation-ID"]
     assert len(generated) == 36
 
     assert (
-        client.get("/health", headers={"X-Request-ID": "trace-abc.123"}).headers["X-Request-ID"]
+        client.get("/health", headers={"X-Correlation-ID": "trace-abc.123"}).headers[
+            "X-Correlation-ID"
+        ]
         == "trace-abc.123"
     )
 
-    replaced = client.get("/health", headers={"X-Request-ID": "bad id\twith spaces"}).headers[
-        "X-Request-ID"
+    replaced = client.get("/health", headers={"X-Correlation-ID": "bad id\twith spaces"}).headers[
+        "X-Correlation-ID"
     ]
     assert replaced != "bad id\twith spaces" and len(replaced) == 36
 
@@ -117,7 +119,7 @@ def test_retry_and_refusal_are_logged_with_the_attempt_number(capsys, monkeypatc
     assert any(line["message"] == "payment.refused" for line in lines)
 
 
-def test_unhandled_errors_return_a_json_500_with_the_request_id(capsys, monkeypatch):
+def test_unhandled_errors_return_a_json_500_with_the_correlation_id(capsys, monkeypatch):
     monkeypatch.setenv("PAYMENT_PENDING_DELAY_SECONDS", "0")
     get_settings.cache_clear()
     app = create_app()
@@ -131,10 +133,13 @@ def test_unhandled_errors_return_a_json_500_with_the_request_id(capsys, monkeypa
     get_settings.cache_clear()
 
     assert r.status_code == 500
-    assert r.json()["request_id"] == r.headers["X-Request-ID"]
+    assert r.json()["correlation_id"] == r.headers["X-Correlation-ID"]
     lines = log_lines(capsys)
     error = next(line for line in lines if line["message"] == "http.unhandled_error")
-    assert "RuntimeError" in error["exception"] and error["request_id"] == r.headers["X-Request-ID"]
+    assert (
+        "RuntimeError" in error["exception"]
+        and error["correlation_id"] == r.headers["X-Correlation-ID"]
+    )
     assert next(line for line in lines if line["message"] == "http.request")["status"] == 500
 
 
