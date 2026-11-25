@@ -2,7 +2,7 @@
   "uid": "parking-ops",
   "title": "Parking — supervision des microservices",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "refresh": "10s",
   "time": {
     "from": "now-30m",
@@ -34,7 +34,9 @@
             "uid": "prometheus"
           },
           "expr": "up{job!=\"prometheus\"}",
-          "legendFormat": "{{job}}"
+          "legendFormat": "{{job}}",
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
