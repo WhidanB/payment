@@ -24,6 +24,7 @@ supervisé doit exposer `GET /metrics` au format Prometheus.
 | `http_requests_total` | `method`, `route` (gabarit, ex. `/payments/{payment_id}`), `status`, `outcome` (`success` si < 400, sinon `error`) | Requêtes HTTP traitées |
 | `parking_operations_total` | `operation="payment"`, `result` ∈ `requested`, `replayed`, `conflict`, `retried`, `accepted`, `refused` | Demandes de paiement : créées, rejouées, en conflit, représentées, acceptées, refusées |
 | | `operation="transaction"`, `result` ∈ `accepted`, `refused` | Résultat de chaque tentative auprès de la passerelle |
+| `payment_accepted_amount_euros_total` | `reference_type` ∈ `BOOKING`, `PARKING_EXIT` | Euros encaissés par les paiements acceptés (un rejeu ou un refus n'ajoute rien) |
 | `process_*`, `python_info` | | Mémoire, CPU, descripteurs du processus |
 
 Toutes les séries métier existent dès le démarrage, à 0. `/metrics` est public, comme `/health` :
@@ -72,6 +73,16 @@ Dossier *Parking*, « Parking — supervision des microservices » :
   taux d'acceptation, part des tentatives refusées par la passerelle (~5 % simulés), demandes
   en attente, nombre moyen de tentatives par demande ; puis l'issue des demandes et des
   tentatives minute par minute.
+- **Payment — montants encaissés** : total encaissé sur la période choisie en haut à droite
+  (dernière heure, 24 h, 7 jours, 30 jours…), dont réservations et sorties de parking, panier
+  moyen ; puis un histogramme des euros encaissés regroupés par heure, jour, semaine ou mois
+  (sélecteur `Regrouper par`). Prendre une période affichée plus longue que le regroupement
+  (ex. 7 derniers jours par jour).
+
+Prometheus ne compte que pendant qu'il tourne : les euros encaissés pendant qu'il est arrêté
+n'apparaissent pas, et les vues longues (semaine, mois) supposent qu'il tourne en continu.
+Rétention portée à 90 jours (15 par défaut). Pour une comptabilité exacte sur tout l'historique,
+la source de vérité reste la base (tables `payment_requests` / `payment_transactions`).
 
 Les compteurs repartent de zéro à chaque redémarrage du service : `increase()` en tient compte,
 mais une période qui précède le démarrage n'a pas de données.

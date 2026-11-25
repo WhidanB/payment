@@ -75,6 +75,8 @@ def test_payment_operations_follow_the_api(client):
     assert ops("payment", "conflict") == 1
     assert ops("transaction", "accepted") == 1
     assert ops("payment", "accepted") == 1
+    assert sample(client, "payment_accepted_amount_euros_total", reference_type="BOOKING") == 12.5
+    assert sample(client, "payment_accepted_amount_euros_total", reference_type="PARKING_EXIT") == 0
 
 
 async def test_refusal_retry_and_final_refusal_are_counted(repository, scheduler, command):
@@ -99,6 +101,12 @@ async def test_refusal_retry_and_final_refusal_are_counted(repository, scheduler
     assert ops("payment", "retried") == 1
     assert ops("payment", "refused") == 1
     assert ops("payment", "accepted") == 0
+    assert (
+        metrics.registry.get_sample_value(
+            "payment_accepted_amount_euros_total", {"reference_type": "BOOKING"}
+        )
+        == 0
+    )  # refused payments collect nothing
 
 
 def test_metrics_stays_open_when_the_api_key_is_enforced(monkeypatch):

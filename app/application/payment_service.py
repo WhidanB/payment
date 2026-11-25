@@ -184,6 +184,9 @@ class PaymentService:
             logger.info("payment.accepted", extra=_fields(payment))
             self._metrics.record("transaction", "accepted")
             self._metrics.record("payment", "accepted")
+            self._metrics.record_accepted_amount(
+                amount=payment.amount, reference_type=payment.reference.type.value
+            )
             return
 
         transaction.refuse()

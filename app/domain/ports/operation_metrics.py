@@ -17,9 +17,16 @@ class OperationMetrics(ABC):
     def record(self, operation: Operation, outcome: Outcome) -> None:
         """Count one occurrence of ``operation`` ending with ``outcome``."""
 
+    @abstractmethod
+    def record_accepted_amount(self, *, amount: int, reference_type: str) -> None:
+        """Add an accepted payment's ``amount`` (cents) to the money collected."""
+
 
 class NoOperationMetrics(OperationMetrics):
     """Default when nothing is monitored (unit tests, scripts)."""
 
     def record(self, operation: Operation, outcome: Outcome) -> None:
+        pass
+
+    def record_accepted_amount(self, *, amount: int, reference_type: str) -> None:
         pass

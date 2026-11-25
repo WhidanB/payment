@@ -8,6 +8,7 @@ services:
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=90d  # default is 15d: too short for a monthly view
       - --web.enable-lifecycle  # POST /-/reload re-reads prometheus.yml without a restart
     ports:
       - "9090:9090"

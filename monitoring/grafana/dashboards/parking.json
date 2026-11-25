@@ -2,10 +2,10 @@
   "uid": "parking-ops",
   "title": "Parking — supervision des microservices",
   "schemaVersion": 39,
-  "version": 4,
+  "version": 5,
   "refresh": "10s",
   "time": {
-    "from": "now-30m",
+    "from": "now-24h",
     "to": "now"
   },
   "tags": [
@@ -961,6 +961,314 @@
         ]
       },
       "description": "Chaque demande fait 1 ou 2 tentatives ; un refus déclenche une représentation automatique."
+    },
+    {
+      "id": 200,
+      "type": "row",
+      "title": "Payment — montants encaissés ($payment_job)",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 37,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 201,
+      "type": "stat",
+      "title": "Encaissé sur la période affichée",
+      "description": "Somme des paiements acceptés pendant la période choisie en haut à droite (dernière heure, 24 h, 7 jours, 30 jours…).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(payment_accepted_amount_euros_total{job=\"$payment_job\"}[$__range]))",
+          "legendFormat": "",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "decimals": 2,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 202,
+      "type": "stat",
+      "title": "dont réservations",
+      "description": "Paiements de réservation (Booking).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 38,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(payment_accepted_amount_euros_total{job=\"$payment_job\",reference_type=\"BOOKING\"}[$__range]))",
+          "legendFormat": "",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "decimals": 2,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 203,
+      "type": "stat",
+      "title": "dont sorties de parking",
+      "description": "Paiements à la sortie du parking (Access).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 38,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(payment_accepted_amount_euros_total{job=\"$payment_job\",reference_type=\"PARKING_EXIT\"}[$__range]))",
+          "legendFormat": "",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "decimals": 2,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "purple"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 204,
+      "type": "stat",
+      "title": "Panier moyen",
+      "description": "Montant moyen d'un paiement accepté sur la période.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 38,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(payment_accepted_amount_euros_total{job=\"$payment_job\"}[$__range])) / clamp_min(sum(increase(parking_operations_total{job=\"$payment_job\",operation=\"payment\",result=\"accepted\"}[$__range])), 1)",
+          "legendFormat": "",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "decimals": 2,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "orange"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 205,
+      "type": "timeseries",
+      "title": "Encaissé par $periode",
+      "description": "Chaque barre = somme des paiements acceptés pendant une heure, un jour, une semaine ou un mois (sélecteur « Regrouper par »). Choisir une période affichée plus longue que le regroupement (ex. 7 derniers jours par jour).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "interval": "$periode",
+      "gridPos": {
+        "x": 0,
+        "y": 43,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(payment_accepted_amount_euros_total{job=\"$payment_job\",reference_type=\"BOOKING\"}[$periode]))",
+          "legendFormat": "Réservations"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(payment_accepted_amount_euros_total{job=\"$payment_job\",reference_type=\"PARKING_EXIT\"}[$periode]))",
+          "legendFormat": "Sorties de parking"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "decimals": 2,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "barAlignment": -1,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Réservations"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Sorties de parking"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "sum"
+          ]
+        }
+      }
     }
   ],
   "templating": {
@@ -985,6 +1293,38 @@
         },
         "includeAll": false,
         "multi": false
+      },
+      {
+        "name": "periode",
+        "label": "Regrouper par",
+        "type": "custom",
+        "query": "Heure : 1h,Jour : 1d,Semaine : 1w,Mois : 30d",
+        "current": {
+          "text": "Jour",
+          "value": "1d"
+        },
+        "options": [
+          {
+            "text": "Heure",
+            "value": "1h",
+            "selected": false
+          },
+          {
+            "text": "Jour",
+            "value": "1d",
+            "selected": true
+          },
+          {
+            "text": "Semaine",
+            "value": "1w",
+            "selected": false
+          },
+          {
+            "text": "Mois",
+            "value": "30d",
+            "selected": false
+          }
+        ]
       }
     ]
   }

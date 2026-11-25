@@ -14,6 +14,7 @@ from prometheus_client import (
     generate_latest,
 )
 
+from app.domain.model.enums import ReferenceType
 from app.domain.ports.operation_metrics import Operation, OperationMetrics, Outcome
 
 # Series that exist from startup at 0, so graphs and rate() work before the first payment.
@@ -42,6 +43,14 @@ class PrometheusMetrics(OperationMetrics):
             ["operation", "result"],  # same label names as booking, access, parking
             registry=self.registry,
         )
+        self._accepted_amount = Counter(
+            "payment_accepted_amount_euros",
+            "Money collected by accepted payments, in euros, by what was paid for.",
+            ["reference_type"],
+            registry=self.registry,
+        )
+        for reference_type in ReferenceType:
+            self._accepted_amount.labels(reference_type=reference_type.value)
         for operation, outcomes in _KNOWN_OPERATIONS.items():
             for outcome in outcomes:
                 self._operations.labels(operation=operation, result=outcome)
@@ -56,6 +65,9 @@ class PrometheusMetrics(OperationMetrics):
 
     def record(self, operation: Operation, outcome: Outcome) -> None:
         self._operations.labels(operation=operation, result=outcome).inc()
+
+    def record_accepted_amount(self, *, amount: int, reference_type: str) -> None:
+        self._accepted_amount.labels(reference_type=reference_type).inc(amount / 100)
 
     def render(self) -> bytes:
         return generate_latest(self.registry)
