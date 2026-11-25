@@ -192,14 +192,16 @@ Jalon 9 (qualité et fiabilité). Audit du comportement du service, puis correct
 - Comptage métier derrière un port `OperationMetrics`, l'adaptateur Prometheus est branché dans `container.py` : le domaine ne dépend pas de `prometheus_client`.
 - Dossier `monitoring/` : Dockerfile `prom/prometheus` (version fixée), `prometheus.yml` (Prometheus, payment local, payment sur Render, Booking, Access, Pricing), `compose.yaml` avec Grafana en bonus (source de données et tableau de bord provisionnés : état UP/DOWN, requêtes/s, erreurs, opérations métier), notice avec la simulation de panne et les requêtes PromQL.
 - 5 tests ajoutés (168 avec base) ; vérifié sur un vrai serveur : un paiement `demo-refuse-once` fait monter refus, représentation puis acceptation.
+- Supervision branchée sur les services des camarades : Booking (`/v2/booking/metrics`), Access (clé API) et Parking. Les quatre services sont `UP` dans Prometheus ; les trois requêtes des graphiques testées sur les données réelles. Label métier `outcome` renommé `result`, comme chez les trois autres services.
 
 ### Problèmes
 
-- Prometheus n'a pas pu être lancé depuis l'environnement de développement (pas d'accès à Docker) : configuration vérifiée syntaxiquement seulement, collecte réelle à constater au premier `docker compose up`.
-- Hôtes Render de Booking, Access et Pricing inconnus : cibles laissées en `*-HOST` dans `prometheus.yml`.
+- Les conteneurs n'apparaissaient pas dans Docker Desktop : la commande `docker` venait du paquet snap, un second moteur Docker installé dans Ubuntu. Snap retiré, intégration WSL de Docker Desktop activée. Un `wsl --shutdown` a ensuite bloqué WSL (`Wsl/Service/E_UNEXPECTED`), réglé côté Windows.
+- Access protège `/metrics` par sa clé API : Prometheus l'envoie en `X-API-Key`, lue dans un fichier local ignoré par Git (`monitoring/prometheus/secrets/`), lisible par l'utilisateur du conteneur.
+- Chaque service nomme ses labels à sa façon (`route` / `path` / `handler`, `status="404"` ou `"4xx"`) : requêtes PromQL écrites pour accepter toutes les variantes.
 
 ### Suite
 
-- Renseigner les hôtes des camarades dans `prometheus.yml`, vérifier qu'ils exposent `/metrics`, puis produire les trois graphiques et la démonstration de panne.
+- Produire les trois graphiques et la démonstration de panne (arrêt de `payment-local`).
 - Transmettre à Access les consignes de clé d'idempotence (`access:{stationnement_id}:exit`) et de `X-Correlation-ID`.
 - Conserver le `correlation_id` en base pour qu'une transaction reprise après redémarrage garde le sien.

@@ -22,27 +22,50 @@ supervisé doit exposer `GET /metrics` au format Prometheus.
 | Métrique | Labels | Sens |
 |---|---|---|
 | `http_requests_total` | `method`, `route` (gabarit, ex. `/payments/{payment_id}`), `status`, `outcome` (`success` si < 400, sinon `error`) | Requêtes HTTP traitées |
-| `parking_operations_total` | `operation="payment"`, `outcome` ∈ `requested`, `replayed`, `conflict`, `retried`, `accepted`, `refused` | Demandes de paiement : créées, rejouées, en conflit, représentées, acceptées, refusées |
-| | `operation="transaction"`, `outcome` ∈ `accepted`, `refused` | Résultat de chaque tentative auprès de la passerelle |
+| `parking_operations_total` | `operation="payment"`, `result` ∈ `requested`, `replayed`, `conflict`, `retried`, `accepted`, `refused` | Demandes de paiement : créées, rejouées, en conflit, représentées, acceptées, refusées |
+| | `operation="transaction"`, `result` ∈ `accepted`, `refused` | Résultat de chaque tentative auprès de la passerelle |
 | `process_*`, `python_info` | | Mémoire, CPU, descripteurs du processus |
 
 Toutes les séries métier existent dès le démarrage, à 0. `/metrics` est public, comme `/health` :
 il ne contient que des compteurs, aucune donnée de paiement.
 
+## Services surveillés
+
+| Job | Cible | Particularité |
+|---|---|---|
+| `payment` | https://payment-xp8n.onrender.com/metrics | Notre service en production |
+| `payment-local` | `host.docker.internal:8000` | Notre service lancé sur la machine |
+| `booking` | https://booking-api-vhy5.onrender.com/v2/booking/metrics | Chemin propre (`metrics_path`) |
+| `access` | https://access-api-a1u7.onrender.com/metrics | Protégé par `X-API-Key` |
+| `parking` | https://parking-6r73.onrender.com/metrics | |
+
+Les services ne nomment pas leurs labels de la même façon ; les requêtes plus bas fonctionnent
+pour tous :
+
+| Service | Route HTTP | Code HTTP | Résultat métier |
+|---|---|---|---|
+| payment | `route` | `status="202"` | `result` |
+| booking | `route` | `status="409"` | `result` |
+| parking | `path` | `status="200"` | `result` |
+| access | `handler` | `status="2xx"` | `result` |
+
+**Clé d'Access.** Prometheus l'envoie dans l'en-tête `X-API-Key`, lue dans
+`prometheus/secrets/access_api_key` (ignoré par Git, monté en lecture seule). Sur une autre
+machine, recréer ce fichier, lisible par le conteneur :
+`printf '%s' '<clé>' > prometheus/secrets/access_api_key && chmod 644 prometheus/secrets/access_api_key`.
+
 ## Démarrer
 
-1. Renseigner les hôtes Render des camarades dans `prometheus/prometheus.yml` (jobs `booking`,
-   `access`, `pricing` : hôte seul, sans `https://`). Les cibles laissées en `*-HOST` restent `DOWN`.
-2. Lancer le service en local (port 8000), pour la cible `payment-local` :
+1. Lancer le service en local (port 8000), pour la cible `payment-local` :
    ```bash
-   uvicorn app.main:create_app --factory --port 8000   # depuis la racine du dépôt
+   .venv/bin/uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000   # depuis la racine du dépôt
    ```
-3. Lancer la supervision :
+2. Lancer la supervision :
    ```bash
    cd monitoring
    docker compose up -d --build
    ```
-4. Ouvrir http://localhost:9090/targets : chaque service est `UP` ou `DOWN`.
+3. Ouvrir http://localhost:9090/targets : chaque service est `UP` ou `DOWN`.
 
 Après une modification de `prometheus.yml`, recharger sans redémarrer :
 `curl -X POST http://localhost:9090/-/reload`.
@@ -59,13 +82,13 @@ Après une modification de `prometheus.yml`, recharger sans redémarrer :
 | Graphique | PromQL |
 |---|---|
 | Disponibilité des services | `up{job!="prometheus"}` |
-| Requêtes HTTP par seconde | `sum by (job) (rate(http_requests_total{route!="/metrics"}[1m]))` |
-| Erreurs HTTP par seconde | `sum by (job, status) (rate(http_requests_total{outcome="error"}[5m]))` |
-| Opérations métier (5 min) | `sum by (job, operation, outcome) (increase(parking_operations_total[5m]))` |
+| Requêtes HTTP par seconde | `sum by (job) (rate(http_requests_total{route!~".*/metrics",path!~".*/metrics",handler!~".*/metrics"}[1m]))` |
+| Erreurs HTTP par seconde | `sum by (job, status) (rate(http_requests_total{status=~"[45].*"}[5m]))` |
+| Opérations métier (5 min) | `sum by (job, operation, result) (increase(parking_operations_total[5m]))` |
 
-`route!="/metrics"` retire les collectes de Prometheus du trafic affiché. Les autres services
-peuvent nommer leurs labels autrement (`code` au lieu de `status`…) : vérifier leur `/metrics`
-avant d'adapter les requêtes.
+Le filtre sur `route` / `path` / `handler` retire les collectes de Prometheus du trafic affiché,
+quel que soit le nom du label (un label absent vaut `""` et passe le filtre). `status=~"[45].*"`
+reconnaît à la fois `404` et `4xx`.
 
 Pour faire bouger les compteurs : `BASE_URL=http://localhost:8000 ./scripts/requests.sh`, ou les
 boutons de http://localhost:8000/ui (un lot de 20, un refus de démonstration).

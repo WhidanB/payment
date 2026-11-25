@@ -42,7 +42,7 @@ def test_metrics_is_prometheus_text_with_business_series_at_zero(client):
     assert r.headers["content-type"].startswith("text/plain")
     assert "# TYPE http_requests_total counter" in r.text
     assert "# TYPE parking_operations_total counter" in r.text
-    assert 'parking_operations_total{operation="payment",outcome="accepted"} 0.0' in r.text
+    assert 'parking_operations_total{operation="payment",result="accepted"} 0.0' in r.text
 
 
 def test_http_requests_are_counted_by_route_template_and_outcome(client):
@@ -68,7 +68,7 @@ def test_payment_operations_follow_the_api(client):
     wait_settled(client, created["payment_id"])
 
     def ops(operation, outcome):
-        return sample(client, "parking_operations_total", operation=operation, outcome=outcome)
+        return sample(client, "parking_operations_total", operation=operation, result=outcome)
 
     assert ops("payment", "requested") == 1
     assert ops("payment", "replayed") == 1
@@ -92,7 +92,7 @@ async def test_refusal_retry_and_final_refusal_are_counted(repository, scheduler
 
     def ops(operation, outcome):
         return metrics.registry.get_sample_value(
-            "parking_operations_total", {"operation": operation, "outcome": outcome}
+            "parking_operations_total", {"operation": operation, "result": outcome}
         )
 
     assert ops("transaction", "refused") == 2

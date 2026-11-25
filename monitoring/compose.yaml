@@ -15,6 +15,7 @@ services:
       - "host.docker.internal:host-gateway"  # reach the payment service running on the host
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/secrets:/etc/prometheus/secrets:ro  # scrape credentials, git-ignored
       - prometheus-data:/prometheus
 
   grafana:

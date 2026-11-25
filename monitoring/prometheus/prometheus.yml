@@ -21,18 +21,24 @@ scrape_configs:
     static_configs:
       - targets: ["payment-xp8n.onrender.com"]
 
-  # Classmates' services: replace each placeholder with the real Render host (no https://).
+  # Classmates' services (Render). Hosts only; metrics_path when it is not /metrics.
   - job_name: booking
     scheme: https
+    metrics_path: /v2/booking/metrics
     static_configs:
-      - targets: ["BOOKING-HOST.onrender.com"]
+      - targets: ["booking-api-vhy5.onrender.com"]
 
   - job_name: access
     scheme: https
+    # Access protects /metrics with its X-API-Key. The key lives in secrets/ (git-ignored),
+    # mounted read-only in the container; it is re-read at each scrape.
+    http_headers:
+      X-API-Key:
+        files: ["/etc/prometheus/secrets/access_api_key"]
     static_configs:
-      - targets: ["ACCESS-HOST.onrender.com"]
+      - targets: ["access-api-a1u7.onrender.com"]
 
-  - job_name: pricing
+  - job_name: parking
     scheme: https
     static_configs:
-      - targets: ["PRICING-HOST.onrender.com"]
+      - targets: ["parking-6r73.onrender.com"]

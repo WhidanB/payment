@@ -39,12 +39,12 @@ class PrometheusMetrics(OperationMetrics):
         self._operations = Counter(
             "parking_operations",
             "Business operations of the payment service.",
-            ["operation", "outcome"],
+            ["operation", "result"],  # same label names as booking, access, parking
             registry=self.registry,
         )
         for operation, outcomes in _KNOWN_OPERATIONS.items():
             for outcome in outcomes:
-                self._operations.labels(operation=operation, outcome=outcome)
+                self._operations.labels(operation=operation, result=outcome)
 
     def observe_http(self, *, method: str, route: str, status: int) -> None:
         self._http_requests.labels(
@@ -55,7 +55,7 @@ class PrometheusMetrics(OperationMetrics):
         ).inc()
 
     def record(self, operation: Operation, outcome: Outcome) -> None:
-        self._operations.labels(operation=operation, outcome=outcome).inc()
+        self._operations.labels(operation=operation, result=outcome).inc()
 
     def render(self) -> bytes:
         return generate_latest(self.registry)
