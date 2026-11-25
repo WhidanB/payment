@@ -193,6 +193,7 @@ Jalon 9 (qualité et fiabilité). Audit du comportement du service, puis correct
 - Dossier `monitoring/` : Dockerfile `prom/prometheus` (version fixée), `prometheus.yml` (Prometheus, payment local, payment sur Render, Booking, Access, Pricing), `compose.yaml` avec Grafana en bonus (source de données et tableau de bord provisionnés : état UP/DOWN, requêtes/s, erreurs, opérations métier), notice avec la simulation de panne et les requêtes PromQL.
 - 5 tests ajoutés (168 avec base) ; vérifié sur un vrai serveur : un paiement `demo-refuse-once` fait monter refus, représentation puis acceptation.
 - Supervision branchée sur les services des camarades : Booking (`/v2/booking/metrics`), Access (clé API) et Parking. Les quatre services sont `UP` dans Prometheus ; les trois requêtes des graphiques testées sur les données réelles. Label métier `outcome` renommé `result`, comme chez les trois autres services.
+- Ajout de Vehicles (Spring Boot) : il n'expose pas les deux métriques de la consigne, elles sont reconstituées à la collecte par renommage (`http_server_requests_seconds_count`, `vehicles_creations_total`). Quatre services de camarades et le nôtre `UP`.
 
 ### Problèmes
 

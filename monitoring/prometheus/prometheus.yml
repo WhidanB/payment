@@ -42,3 +42,26 @@ scrape_configs:
     scheme: https
     static_configs:
       - targets: ["parking-6r73.onrender.com"]
+
+  # Spring Boot (Micrometer): no http_requests_total / parking_operations_total of its own.
+  # Renamed at scrape time so the shared PromQL queries and dashboard cover it too.
+  - job_name: vehicles
+    scheme: https
+    static_configs:
+      - targets: ["parking-vehicles.onrender.com"]
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: http_server_requests_seconds_count
+        target_label: __name__
+        replacement: http_requests_total
+      - source_labels: [__name__, uri]
+        regex: http_requests_total;(.+)
+        target_label: route
+      - source_labels: [__name__]
+        regex: vehicles_creations_total
+        target_label: operation
+        replacement: vehicle_create
+      - source_labels: [__name__]
+        regex: vehicles_creations_total
+        target_label: __name__
+        replacement: parking_operations_total

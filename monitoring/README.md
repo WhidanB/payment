@@ -38,6 +38,7 @@ il ne contient que des compteurs, aucune donnée de paiement.
 | `booking` | https://booking-api-vhy5.onrender.com/v2/booking/metrics | Chemin propre (`metrics_path`) |
 | `access` | https://access-api-a1u7.onrender.com/metrics | Protégé par `X-API-Key` |
 | `parking` | https://parking-6r73.onrender.com/metrics | |
+| `vehicles` | https://parking-vehicles.onrender.com/metrics | Spring Boot : métriques renommées à la collecte (voir plus bas) |
 
 Les services ne nomment pas leurs labels de la même façon ; les requêtes plus bas fonctionnent
 pour tous :
@@ -48,6 +49,12 @@ pour tous :
 | booking | `route` | `status="409"` | `result` |
 | parking | `path` | `status="200"` | `result` |
 | access | `handler` | `status="2xx"` | `result` |
+| vehicles | `uri`, copié en `route` | `status="200"` | aucun (`operation="vehicle_create"` seulement) |
+
+**Vehicles.** Spring Boot n'expose ni `http_requests_total` ni `parking_operations_total`. Prometheus renomme
+à la collecte (`metric_relabel_configs`) `http_server_requests_seconds_count` en `http_requests_total`
+et `vehicles_creations_total` en `parking_operations_total{operation="vehicle_create"}` : les requêtes
+et le tableau de bord le couvrent sans modification.
 
 **Clé d'Access.** Prometheus l'envoie dans l'en-tête `X-API-Key`, lue dans
 `prometheus/secrets/access_api_key` (ignoré par Git, monté en lecture seule). Sur une autre
