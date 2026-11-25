@@ -61,6 +61,21 @@ et le tableau de bord le couvrent sans modification.
 machine, recréer ce fichier, lisible par le conteneur :
 `printf '%s' '<clé>' > prometheus/secrets/access_api_key && chmod 644 prometheus/secrets/access_api_key`.
 
+## Tableau de bord Grafana
+
+Dossier *Parking*, « Parking — supervision des microservices » :
+
+- **Tous les services** : état UP/DOWN, requêtes HTTP par seconde, erreurs, opérations métier.
+- **Payment — opérations métier**, avec un sélecteur `Payment` en haut (`payment` = Render,
+  `payment-local` = la machine). Sur la période affichée : demandes créées, acceptées, refusées
+  définitivement, sauvées par la représentation automatique, rejeux idempotents, conflits `409` ;
+  taux d'acceptation, part des tentatives refusées par la passerelle (~5 % simulés), demandes
+  en attente, nombre moyen de tentatives par demande ; puis l'issue des demandes et des
+  tentatives minute par minute.
+
+Les compteurs repartent de zéro à chaque redémarrage du service : `increase()` en tient compte,
+mais une période qui précède le démarrage n'a pas de données.
+
 ## Démarrer
 
 1. Lancer le service en local (port 8000), pour la cible `payment-local` :
