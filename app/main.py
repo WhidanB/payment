@@ -14,7 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app import __version__
-from app.adapters.inbound.http import routes_health, routes_payments, routes_ui
+from app.adapters.inbound.http import routes_health, routes_metrics, routes_payments, routes_ui
 from app.config import get_settings
 from app.container import build_container
 from app.domain.model.ids import new_id
@@ -23,7 +23,7 @@ from app.logging_config import configure_logging, correlation_id_var
 logger = logging.getLogger("payment.http")
 
 _CORRELATION_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
-_QUIET_PATHS = {"/health"}  # polled by Render / the UI: logged at DEBUG only
+_QUIET_PATHS = {"/health", "/metrics"}  # polled by Render / the UI / Prometheus: DEBUG only
 
 
 @asynccontextmanager
@@ -83,6 +83,13 @@ def create_app() -> FastAPI:
                     "duration_ms": round((time.perf_counter() - started) * 1000, 1),
                 },
             )
+            # Route template, not the raw path: one series per endpoint, not per payment id.
+            route = request.scope.get("route")
+            request.app.state.container.metrics.observe_http(
+                method=request.method,
+                route=getattr(route, "path", "unmatched"),
+                status=status_code,
+            )
             correlation_id_var.reset(token)
         response.headers["X-Correlation-ID"] = correlation_id
         return response
@@ -90,5 +97,6 @@ def create_app() -> FastAPI:
     app.include_router(routes_health.router)
     app.include_router(routes_payments.router)
     app.include_router(routes_ui.router)
+    app.include_router(routes_metrics.router)
 
     return app

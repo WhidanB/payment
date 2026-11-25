@@ -1,0 +1,38 @@
+# Services monitored by Prometheus (UI: http://localhost:9090).
+# Every target must expose GET /metrics in the Prometheus text format.
+
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s  # a sleeping Render instance takes 30-50 s to wake: DOWN until it answers
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Our service running on this machine (uvicorn on port 8000), seen from the container.
+  - job_name: payment-local
+    static_configs:
+      - targets: ["host.docker.internal:8000"]
+
+  # Our service deployed on Render.
+  - job_name: payment
+    scheme: https
+    static_configs:
+      - targets: ["payment-xp8n.onrender.com"]
+
+  # Classmates' services: replace each placeholder with the real Render host (no https://).
+  - job_name: booking
+    scheme: https
+    static_configs:
+      - targets: ["BOOKING-HOST.onrender.com"]
+
+  - job_name: access
+    scheme: https
+    static_configs:
+      - targets: ["ACCESS-HOST.onrender.com"]
+
+  - job_name: pricing
+    scheme: https
+    static_configs:
+      - targets: ["PRICING-HOST.onrender.com"]

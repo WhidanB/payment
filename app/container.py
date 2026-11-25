@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from app.adapters.outbound.asyncio_resolution_scheduler import AsyncioResolutionScheduler
 from app.adapters.outbound.in_memory_payment_repository import InMemoryPaymentRepository
 from app.adapters.outbound.postgres_payment_repository import PostgresPaymentRepository
+from app.adapters.outbound.prometheus_metrics import PrometheusMetrics
 from app.adapters.outbound.simulated_payment_gateway import SimulatedPaymentGateway
 from app.application.payment_service import PaymentService
 from app.config import Settings, get_settings
@@ -25,6 +26,7 @@ class Container:
     repository: PaymentRepository
     gateway: PaymentGateway
     scheduler: ResolutionScheduler
+    metrics: PrometheusMetrics
     payment_service: PaymentService
 
     @property
@@ -48,6 +50,7 @@ async def build_container(settings: Settings | None = None) -> Container:
         repository = InMemoryPaymentRepository()
     gateway: PaymentGateway = SimulatedPaymentGateway(failure_rate=settings.failure_rate)
     scheduler: ResolutionScheduler = AsyncioResolutionScheduler()
+    metrics = PrometheusMetrics()
 
     payment_service = PaymentService(
         repository,
@@ -55,6 +58,7 @@ async def build_container(settings: Settings | None = None) -> Container:
         scheduler,
         pending_delay_seconds=settings.pending_delay_seconds,
         max_attempts=settings.max_attempts,
+        metrics=metrics,
     )
 
     return Container(
@@ -62,5 +66,6 @@ async def build_container(settings: Settings | None = None) -> Container:
         repository=repository,
         gateway=gateway,
         scheduler=scheduler,
+        metrics=metrics,
         payment_service=payment_service,
     )

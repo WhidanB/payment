@@ -187,13 +187,19 @@ Jalon 9 (qualité et fiabilité). Audit du comportement du service, puis correct
 - Constat dans les logs de production : Booking n'envoie aucun identifiant de corrélation (le `request_id` d'un de ses `GET` est un UUID v7 daté de l'arrivée de la requête, donc généré par nous).
 - Décision commune : l'en-tête de corrélation de toute la chaîne est **`X-Correlation-ID`**. Le service le lit, le génère s'il manque, le renvoie et le porte dans chaque ligne de log (champ `correlation_id`, y compris la résolution 15 s plus tard et le corps des `500`). `X-Request-ID` n'est plus lu.
 - Guide d'intégration, README, `ETAT_DU_SERVICE.md` et `VERIFICATION.md` mis à jour.
+- Booking confirme que sa clé d'idempotence était déjà stable d'un essai à l'autre (suffixe tiré une fois par réservation) ; passage quand même à `booking:{reservation_id}:create`, codes de réservation plus jamais réattribués, `X-Correlation-ID` envoyé. Réponses apportées : clés sans expiration, rejeu en `200` quel que soit le statut, et un `409` ou un `401` ne prouvent pas qu'aucun paiement n'existe.
+- Supervision (consigne Prometheus) : `GET /metrics` au format Prometheus, public comme `/health`. `http_requests_total` par méthode, gabarit de route (pas un compteur par identifiant de paiement), statut et `success` / `error` ; `parking_operations_total` pour les demandes (créées, rejouées, en conflit, représentées, acceptées, refusées) et les tentatives (acceptées, refusées). Séries à 0 dès le démarrage.
+- Comptage métier derrière un port `OperationMetrics`, l'adaptateur Prometheus est branché dans `container.py` : le domaine ne dépend pas de `prometheus_client`.
+- Dossier `monitoring/` : Dockerfile `prom/prometheus` (version fixée), `prometheus.yml` (Prometheus, payment local, payment sur Render, Booking, Access, Pricing), `compose.yaml` avec Grafana en bonus (source de données et tableau de bord provisionnés : état UP/DOWN, requêtes/s, erreurs, opérations métier), notice avec la simulation de panne et les requêtes PromQL.
+- 5 tests ajoutés (168 avec base) ; vérifié sur un vrai serveur : un paiement `demo-refuse-once` fait monter refus, représentation puis acceptation.
 
 ### Problèmes
 
-- Les clés d'idempotence de Booking finissent par un suffixe aléatoire (`booking-095243-e2727434`) : un rejeu après timeout avec une nouvelle clé créerait un second paiement.
+- Prometheus n'a pas pu être lancé depuis l'environnement de développement (pas d'accès à Docker) : configuration vérifiée syntaxiquement seulement, collecte réelle à constater au premier `docker compose up`.
+- Hôtes Render de Booking, Access et Pricing inconnus : cibles laissées en `*-HOST` dans `prometheus.yml`.
 
 ### Suite
 
-- Prévenir Booking et Access de l'en-tête `X-Correlation-ID` à propager.
-- Demander à Booking une clé d'idempotence déterministe (`booking:{reservation_id}:create`), ou ajouter côté service une seule demande `PENDING`/`ACCEPTED` par référence.
+- Renseigner les hôtes des camarades dans `prometheus.yml`, vérifier qu'ils exposent `/metrics`, puis produire les trois graphiques et la démonstration de panne.
+- Transmettre à Access les consignes de clé d'idempotence (`access:{stationnement_id}:exit`) et de `X-Correlation-ID`.
 - Conserver le `correlation_id` en base pour qu'une transaction reprise après redémarrage garde le sien.

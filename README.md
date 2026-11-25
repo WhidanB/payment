@@ -20,6 +20,7 @@ Payment ne calcule pas les prix : il reçoit un montant et une référence de ce
 | ReDoc | https://payment-xp8n.onrender.com/redoc |
 | OpenAPI JSON | https://payment-xp8n.onrender.com/openapi.json |
 | Health check | https://payment-xp8n.onrender.com/health |
+| Métriques Prometheus | https://payment-xp8n.onrender.com/metrics |
 
 Render gratuit : après ~15 min d'inactivité, le premier appel met 30 à 50 s à répondre (réveil de l'instance).
 
@@ -36,6 +37,7 @@ Render gratuit : après ~15 min d'inactivité, le premier appel met 30 à 50 s �
 | [docs/INTEGRATION_BOOKING_ACCESS.md](docs/INTEGRATION_BOOKING_ACCESS.md) | Guide pour Booking et Access : exemples par scénario, polling, idempotence, erreurs |
 | [docs/ETAT_DU_SERVICE.md](docs/ETAT_DU_SERVICE.md) | État détaillé du service : périmètre, modèle, comportement, limites |
 | [docs/VERIFICATION.md](docs/VERIFICATION.md) | Vérifier et reproduire le fonctionnement : commande unique, cas testés, logs, scénarios manuels |
+| [monitoring/README.md](monitoring/README.md) | Supervision : métriques exposées, Prometheus, Grafana, requêtes PromQL |
 | [JOURNAL.md](JOURNAL.md) | Journal de travail jour par jour |
 
 ## Dépendances avec les autres services
@@ -116,6 +118,7 @@ L'en-tête `X-API-Key` n'est exigé qu'une fois la clé activée sur le serveur 
 | `GET /payments?limit=50` | Demandes récentes, les plus récentes d'abord (utilisé par l'UI, 1 à 200) | `200`, `401`, `422` |
 | `GET /health` | Santé du service, avec la configuration utile à l'UI | `200` |
 | `GET /ui` | Console de démonstration | `200` |
+| `GET /metrics` | Compteurs Prometheus : `http_requests_total`, `parking_operations_total` | `200` |
 
 Corps de `POST /payments` :
 
@@ -138,7 +141,7 @@ Le détail des scénarios, du polling et de la gestion d'erreurs est dans le [gu
 |---|---|
 | `POST /payments`, `GET /payments/{id}` | En-tête `X-API-Key` (401 si absent ou faux) |
 | `GET /payments` (liste) | En-tête `X-API-Key` |
-| `/health`, `/ui`, `/docs`, `/redoc`, `/openapi.json` | Publics |
+| `/health`, `/metrics`, `/ui`, `/docs`, `/redoc`, `/openapi.json` | Publics |
 
 | Mesure | Détail |
 |---|---|
@@ -164,6 +167,7 @@ Le détail des scénarios, du polling et de la gestion d'erreurs est dans le [gu
 - [x] Une panne de la passerelle ne laisse jamais une transaction bloquée en `PENDING`.
 - [x] Le comportement est vérifiable en une commande (`./scripts/verify.sh`) et par la CI.
 - [x] Le service expose un endpoint `/health`.
+- [x] Le service expose ses métriques à Prometheus (`/metrics`) ; supervision Prometheus + Grafana dans `monitoring/`.
 - [x] La documentation Swagger/ReDoc est générée automatiquement.
 - [x] Une interface web (`/ui`) permet de créer, rejouer, observer les demandes et leurs transactions.
 - [x] Je peux lister les demandes récentes (`GET /payments`).

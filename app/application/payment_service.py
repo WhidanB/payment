@@ -19,6 +19,7 @@ from app.domain.model.enums import SourceService
 from app.domain.model.errors import IdempotencyConflict, IdempotencyKeyTaken
 from app.domain.model.payment import PaymentReference, PaymentRequest
 from app.domain.model.transaction import Transaction
+from app.domain.ports.operation_metrics import NoOperationMetrics, OperationMetrics
 from app.domain.ports.payment_gateway import GatewayResult, PaymentGateway
 from app.domain.ports.payment_repository import PaymentRepository
 from app.domain.ports.resolution_scheduler import ResolutionScheduler
@@ -50,12 +51,14 @@ class PaymentService:
         *,
         pending_delay_seconds: float,
         max_attempts: int,
+        metrics: OperationMetrics | None = None,
     ) -> None:
         self._repository = repository
         self._gateway = gateway
         self._scheduler = scheduler
         self._pending_delay_seconds = pending_delay_seconds
         self._max_attempts = max_attempts
+        self._metrics = metrics or NoOperationMetrics()
         self._key_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
     # -- commands / queries ----------------------------------------------------
@@ -86,6 +89,7 @@ class PaymentService:
                 return self._replay(winner, command)
 
         logger.info("payment.requested", extra=_fields(payment))
+        self._metrics.record("payment", "requested")
         logger.info("transaction.created", extra=_fields(payment, transaction=transaction))
         self._schedule_resolution(payment.id, transaction.id)
         return RequestPaymentResult(payment=payment, created=True)
@@ -103,11 +107,13 @@ class PaymentService:
                 "payment.idempotency_conflict",
                 extra=_fields(existing, detail="same key, different payload"),
             )
+            self._metrics.record("payment", "conflict")
             raise IdempotencyConflict(command.idempotency_key)
         logger.info(
             "payment.idempotent_hit",
             extra=_fields(existing, transaction=existing.current_transaction),
         )
+        self._metrics.record("payment", "replayed")
         return RequestPaymentResult(payment=existing, created=False)
 
     async def resume_pending(self) -> int:
@@ -176,9 +182,12 @@ class PaymentService:
             await self._repository.save(payment)
             logger.info("transaction.accepted", extra=_fields(payment, transaction=transaction))
             logger.info("payment.accepted", extra=_fields(payment))
+            self._metrics.record("transaction", "accepted")
+            self._metrics.record("payment", "accepted")
             return
 
         transaction.refuse()
+        self._metrics.record("transaction", "refused")
         logger.info(
             "transaction.refused",
             extra=_fields(payment, transaction=transaction, detail=result.detail),
@@ -194,11 +203,13 @@ class PaymentService:
             logger.info(
                 "transaction.created", extra=_fields(payment, transaction=retry_transaction)
             )
+            self._metrics.record("payment", "retried")
             self._schedule_resolution(payment.id, retry_transaction.id)
         else:
             payment.mark_refused()
             await self._repository.save(payment)
             logger.info("payment.refused", extra=_fields(payment))
+            self._metrics.record("payment", "refused")
 
 
 def _fields(
